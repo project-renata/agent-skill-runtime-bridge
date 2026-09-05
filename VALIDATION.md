@@ -181,7 +181,7 @@ and expiry-driven OAuth refresh remain unverified.
 
 ## GitHub control plane, 0.5.0
 
-Full CPython/MCP suite: 101 tests PASS. Ruff `F,E9` checks on all bridge/api/tests
+Full CPython/MCP suite: 103 tests PASS in 5.290 seconds. Ruff `F,E9` checks on all bridge/api/tests
 sources PASS; Python compile/import checks PASS. This includes existing OAuth
 numeric-ID denial, Redis OAuth persistence across app recreation, program_ref,
 historical/directory snapshots, canonical child credential separation and atomic
@@ -196,4 +196,46 @@ The GitHub transport is simulated in these tests. They do not establish hosted
 permissions, refreshed ChatGPT schemas, runner event delivery or a zero-relay
 production loop; those are recorded separately after actual execution.
 
-Checks API forbidden is reported explicitly with alternative GitHub validation reads; network errors do not trigger this permission-specific path. Required checks with unavailable evidence remain unsatisfied.
+Checks API forbidden is reported explicitly with alternative GitHub validation reads; network errors do not trigger this permission-specific path. Required checks with unavailable evidence remain unsatisfied. Explicitly unprotected branches do not query the unavailable private-plan rules endpoint; protected branches with unavailable rules fail closed.
+
+## Hosted control plane and zero-relay dispatch acceptance, 2026-09-06
+
+Server code `8cf90c4dfa292fe364c7c24f882f650c79e7c418` is deployed to the existing
+production project, deployment `dpl_2n73sYWZghakQBaosLBSDwNVBuuM`. The fixed
+MCP alias remains `https://agent-skill-runtime-bridge.vercel.app/mcp`. OAuth
+discovery returned 200 and unauthenticated MCP returned 401. Refreshing the
+existing ChatGPT connected app exposed all twelve tools, including the original
+three; actual authenticated Web calls exercised the new schemas.
+
+The existing repository-scoped server PAT gained Issues write and Pull requests,
+commit statuses and Actions read. Its value stayed in the server. PR review
+returned real patches and exact SHA; Checks API forbidden was explicitly reported.
+An explicitly unprotected branch had no required checks. Protected branches with
+unavailable requirements still fail closed in the regression suite.
+
+A fresh Web Project conversation called `dispatch_local_agent` and received a
+real Task and V2 control ticket. GitHub's native label event automatically started
+the existing central dispatcher on the operator's self-hosted runner. Local Codex
+produced one allowed documentation file and one commit; publication created a
+draft PR and marked it ready. Native Work skipped opened, processed the explicit
+ready_for_review delivery, read Task evidence and the complete PR patch, decided
+PASS, and called `accept_local_agent_result`. The resulting ticket automatically
+started central PR-aware acceptance. GitHub confirmed MERGED at 22:39:04 UTC,
+then the Task closed at 22:39:08; both Actions runs succeeded. Work subsequently
+skipped the closed event. No human relay, manual dispatcher/acceptance invocation
+or Run now occurred between the fresh Web request and closure. The private
+repository and Work histories retain the detailed receipts.
+
+The first attempt exposed a host configuration issue before provider startup:
+macOS runner SessionCreate=true prevented the host gh identity from accessing
+the private Issue. A read-only LaunchAgent comparison reproduced it; the existing
+runner was configured with SessionCreate=false and restarted without exporting
+a token. The successful test started from a new Web request after that fix; the
+failed chain was not manually stitched together.
+
+This is informed, single-file documentation E2E acceptance, not a claim about
+unprompted tool selection or all tasks. Concurrent and indeterminate writes,
+idempotency and mismatches are tested with simulated GitHub and shared Redis
+semantics, not live fault injection. Cross-repository production dispatch, live
+protected-branch checks, Cloudflare cloud execution and expiry-driven OAuth
+refresh remain outside this acceptance.
