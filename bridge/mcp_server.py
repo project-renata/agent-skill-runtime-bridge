@@ -63,7 +63,21 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
-        return {'repositories': settings.repositories}
+        result = {'repositories': settings.repositories}
+        if any(policy.get('authoring') for policy in settings.repositories.values()):
+            # Some clients omit MCP initialize.instructions from model context.
+            # Keep the canonical helper contract in the discovery tool result too.
+            result['authoring_usage'] = {
+                'helper': 'Use the repository authoring.ref and authoring.program.',
+                'current_commit': {'tool': 'run_readonly_skill', 'files': [], 'input': {}},
+                'read_source': {'tool': 'run_readonly_skill', 'files': ['REPOSITORY_RELATIVE_PATH'],
+                                'input': {'read': ['REPOSITORY_RELATIVE_PATH']}},
+                'read_result': 'Actual source text is result.files[path]. Loading a path in files alone does not return its contents.',
+                'save': 'Call run_write_skill on the helper with input={changes:{path:source_text}} and write={expected_commit:preceding_source_commit,message:description}. Include every existing target in files.',
+                'execute': 'Run the saved .py path under authoring.program_prefix with run_readonly_skill, files listing required data, and JSON input. Python must define run(root,input) returning JSON.',
+                'limits': 'Operator-trusted code only; no hostile-code sandbox or dynamic package installation.',
+            }
+        return result
 
     async def run(arguments):
         # Isolate blocking GitHub I/O and the child process from the ASGI loop.
