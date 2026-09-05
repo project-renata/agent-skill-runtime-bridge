@@ -64,6 +64,15 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
         result = {'repositories': settings.repositories}
+        if any(policy.get('repo_files') for policy in settings.repositories.values()):
+            result['repo_files_usage'] = {
+                'helper': 'Use repository repo_files.ref and repo_files.program for the canonical file atomics.',
+                'read': 'run_readonly_skill: files=[paths], input={read:[paths]}. Text and stat are result.files[path].',
+                'write': 'run_write_skill: input={changes:{path:text_or_null},expect:{path:sha256_or_null},read:[receipt_paths]}; write={expected_commit:source.commit,message:description}. Load existing targets in files; do not list absent paths in files.',
+                'preconditions': 'expect checks optional per-file SHA-256 (null means absent). A failed preflight returns result.ok=false and result.error.code, with zero changes; inspect both outer ok and result.ok.',
+                'receipt': 'result.changes[path] contains operation, before and after. Persisted paths and commit are write.changed and write.commit.',
+                'boundaries': 'read_all=true allows all normal repository-relative files, not traversal, absolute paths, symlinks or submodules. Execution still requires program_prefixes. write_refs plus write_prefixes_by_ref select each branch write boundary; mappings replace legacy write_prefixes.',
+            }
         if any(policy.get('authoring') for policy in settings.repositories.values()):
             # Some clients omit MCP initialize.instructions from model context.
             # Keep the canonical helper contract in the discovery tool result too.

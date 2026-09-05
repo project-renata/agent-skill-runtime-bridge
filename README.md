@@ -45,7 +45,9 @@ Use `Content-Type: application/json` and `Authorization: Bearer <BRIDGE_API_KEY>
 The `files` array describes snapshot inputs, while `input` is passed unchanged to
 the program. Paths are relative to the source repository root. Only configured
 repositories, branch names (or configured full commit hashes), program prefixes,
-and data prefixes are accepted. Prefixes match complete path components.
+and data access policies are accepted. Prefixes match complete path components.
+`read_all: true` allows any normal file inside the selected repository snapshot;
+it does not widen program execution or write permissions.
 
 Successful response:
 
@@ -133,6 +135,49 @@ Configure these on the hosting provider, never commit them:
 
 Vercel: `vercel link`, add the three environment variables for the intended deployment
 environment, then `vercel --prod`. The Python function uses only the standard library.
+
+### Whole-repository reads and separate write boundaries per branch
+
+Use an explicit read mode instead of a root-like or wildcard path prefix:
+
+```json
+{
+  "owner/private-skills": {
+    "ref": "main",
+    "read_all": true,
+    "program_prefixes": ["bridge-bootstrap", "runtime-workspace/programs"],
+    "additional_refs": ["runtime-bridge/web-workspace"],
+    "write_refs": ["main", "runtime-bridge/web-workspace"],
+    "write_prefixes_by_ref": {
+      "main": ["memory/story"],
+      "runtime-bridge/web-workspace": ["runtime-workspace/programs", "runtime-workspace/data"]
+    },
+    "repo_files": {"ref": "main", "program": "bridge-bootstrap/repo_files.py"}
+  }
+}
+```
+
+`read_all` is a boolean and allows omitting `data_prefixes`. Without it, the
+existing prefix read policy is unchanged. All paths still pass the same
+repository-relative path validation; traversal, absolute paths, symlinks and
+submodules remain rejected. Snapshot file-count and size limits still apply.
+Repository reads never authorize arbitrary Python execution.
+
+`write_prefixes_by_ref` replaces the legacy shared `write_prefixes` for that
+repository. A missing ref entry grants no writes, even if listed in `write_refs`;
+configuring both a nonempty legacy grant and the map is rejected. Each map key
+must also be an allowed ref and write ref. The example permits Story transactions
+on main while leaving `AGENTS.md`, `memory/skill` and workspace files unwritable
+there. Workspace writes do not inherit the Story grant.
+
+Optional `repo_files` metadata identifies an existing, allowed canonical Python
+program; it grants no additional access and does not create another API. The
+discovery result includes its existing `read`, `changes`, `expect` and receipt
+contract. Load existing targets in `files`; omit absent paths from that snapshot
+list. Per-file SHA-256 guards use `input.expect`, while repository concurrency
+still uses `write.expected_commit`. A preflight failure may have outer `ok: true`
+with `result.ok: false`, `result.error.code: precondition_failed` and zero changes;
+clients must inspect the program result as well as transport success.
 
 Cloudflare: `uv sync`, `uv run pywrangler dev` or `uv run pywrangler deploy`.
 The tested toolchain is Node 22, uv 0.12.10, workers-py 1.17.1, Wrangler 4.129.0.
