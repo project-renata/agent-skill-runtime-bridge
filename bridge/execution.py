@@ -32,12 +32,12 @@ def invoke(root, program, request):
 
 def collect_changes(root, baseline):
     import os
-    current, size, visited = {}, 0, 0
+    seen, changes, size, visited = set(), {}, 0, 0
     file_limit = max(MAX_FILES * 2, len(baseline) + MAX_FILES)
     byte_limit = max(MAX_TOTAL * 2, sum(map(len, baseline.values())) + MAX_TOTAL)
     for directory, dirs, names in os.walk(root, followlinks=False):
         visited += 1
-        if visited > MAX_SNAPSHOT_DIRS:
+        if visited > MAX_SNAPSHOT_DIRS + 1:
             raise BridgeError("too_many_snapshot_directories", 413)
         for name in dirs + names:
             if (Path(directory) / name).is_symlink():
@@ -48,17 +48,25 @@ def collect_changes(root, baseline):
             safe_path(relative)
             if not path.is_file():
                 raise BridgeError("unsupported_repository_entry", 422)
-            if path.stat().st_size > MAX_FILE:
+            previous = baseline.get(relative)
+            # Large directory files may remain unchanged. New/changed files
+            # still obey the original atomic-write per-file limit.
+            limit = max(MAX_FILE, len(previous) if previous is not None else 0)
+            if path.stat().st_size > limit:
                 raise BridgeError("file_too_large", 413)
-            if len(current) >= file_limit:
+            if len(seen) >= file_limit:
                 raise BridgeError("too_many_snapshot_files", 413)
-            content = path.read_bytes()
+            with path.open("rb") as stream:
+                content = stream.read(limit + 1)
             size += len(content)
-            if len(content) > MAX_FILE or size > byte_limit:
+            if len(content) > limit or size > byte_limit:
                 raise BridgeError("snapshot_too_large", 413)
-            current[relative] = content
-    changes = {path: content for path, content in current.items() if baseline.get(path) != content}
-    changes.update({path: None for path in baseline if path not in current})
+            seen.add(relative)
+            if previous != content:
+                if len(content) > MAX_FILE:
+                    raise BridgeError("file_too_large", 413)
+                changes[relative] = content
+    changes.update({path: None for path in baseline if path not in seen})
     return changes
 
 

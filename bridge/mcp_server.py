@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 from urllib.parse import urlsplit
+from typing import Annotated
 
 from cryptography.fernet import Fernet
 from fastmcp import FastMCP
@@ -16,7 +17,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from bridge.core import (Settings, handle, MAX_FILES, MAX_FILE, MAX_TOTAL,
-                         MAX_SNAPSHOT_FILES, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_DIRS)
+                         MAX_SNAPSHOT_FILES, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_DIRS,
+                         MAX_SNAPSHOT_FILE, MAX_TREE_ENTRIES, MAX_TREE_RESPONSE, MAX_ARCHIVE_BYTES)
 from bridge.execution import execute_subprocess
 from bridge.http import fetch_json, send_json, fetch_archive
 
@@ -45,7 +47,7 @@ class OwnerGitHubProvider(GitHubProvider):
 def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None):
     if auth is None:
         raise ValueError('MCP authentication is required')
-    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.3.0', auth=auth,
+    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.4.0', auth=auth,
         mask_error_details=True, strict_input_validation=True,
         instructions='Call list_runtime_targets to inspect allowed repositories, refs and paths. '
         'Use run_readonly_skill to execute trusted canonical Python against an immutable snapshot. '
@@ -64,7 +66,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
-        result = {'repositories': settings.repositories}
+        result = {'runtime_version': '0.4.0', 'repositories': settings.repositories}
         result['snapshot_usage'] = {
             'files': 'Keep files=["path/file.md"] for explicit files. A trailing slash selects a recursive subtree: files=["memory/story/","memory/fable/"]. Python sees the repository-relative files under root and can use pathlib/rglob without a caller-generated file list.',
             'history': 'On read_all repositories, readonly ref also accepts a full lowercase 40-character commit SHA fetched from that repository. Named refs retain their allowlist. source.commit is the resolved data commit; immutable commits are never write targets.',
@@ -73,7 +75,10 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
             'limits': {'selectors': MAX_FILES - 1, 'file_bytes': MAX_FILE,
                        'explicit_files': MAX_FILES, 'explicit_bytes': MAX_TOTAL,
                        'directory_files': MAX_SNAPSHOT_FILES, 'directory_bytes': MAX_SNAPSHOT_TOTAL,
-                       'directories': MAX_SNAPSHOT_DIRS, 'write_changes': MAX_FILES},
+                       'directory_file_bytes': MAX_SNAPSHOT_FILE,
+                       'directories': MAX_SNAPSHOT_DIRS, 'tree_entries': MAX_TREE_ENTRIES,
+                       'tree_response_bytes': MAX_TREE_RESPONSE, 'archive_bytes': MAX_ARCHIVE_BYTES,
+                       'write_changes': MAX_FILES},
         }
         if any(policy.get('repo_files') for policy in settings.repositories.values()):
             result['repo_files_usage'] = {
@@ -111,7 +116,10 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})
     async def run_readonly_skill(repository: str, ref: str, program: str, files: list[str], input: dict,
-                                 program_ref: str | None = None) -> dict:
+                                 program_ref: Annotated[str | None, Field(description=
+                                     'Optional code ref in the same repository, for example main with a historical data ref. '
+                                     'Omit to load code from ref. Only the canonical program file is overlaid; '
+                                     'source.program_commit records its resolved commit. Readonly only.')] = None) -> dict:
         """Run canonical Python with repository-relative files or recursive directories (trailing /) in root. read_all repositories accept historical commit SHA refs. Optional program_ref selects the code version independently of the data snapshot. Temporary edits are discarded; source records resolved commits."""
         arguments = dict(repository=repository, ref=ref, program=program, files=files, input=input)
         if program_ref is not None:

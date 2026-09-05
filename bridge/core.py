@@ -13,11 +13,16 @@ MAX_FILE = 512 * 1024
 MAX_TOTAL = 2 * 1024 * 1024
 MAX_FILES = 32
 MAX_RESULT = 512 * 1024
-MAX_SNAPSHOT_FILES = 2048
-MAX_SNAPSHOT_TOTAL = 16 * 1024 * 1024
-MAX_SNAPSHOT_DIRS = 4096
-MAX_TREE_ENTRIES = 8192
-MAX_TREE_RESPONSE = 8 * 1024 * 1024
+# Bounded directory capacity: >2x the 2026-09 Story/Fable inventory
+# (15,455 files, 171.3 MiB, 6,292 directories; largest file 1.68 MiB).
+# Explicit-file and atomic-write limits above remain unchanged.
+MAX_SNAPSHOT_FILES = 32768
+MAX_SNAPSHOT_FILE = 4 * 1024 * 1024
+MAX_SNAPSHOT_TOTAL = 384 * 1024 * 1024
+MAX_SNAPSHOT_DIRS = 16384
+MAX_TREE_ENTRIES = 65536
+MAX_TREE_RESPONSE = 32 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 BLOB_CONCURRENCY = 16
 
 
@@ -285,11 +290,11 @@ class GitHub:
             raise BridgeError("too_many_snapshot_entries", 413)
         return entries
 
-    async def blob(self, entry):
+    async def blob(self, entry, limit=MAX_FILE):
         if (entry.get("type") != "blob" or entry.get("mode") not in ("100644", "100755")
                 or not immutable_ref(entry.get("sha"))):
             raise BridgeError("unsupported_repository_entry", 422)
-        if not isinstance(entry.get("size"), int) or not 0 <= entry["size"] <= MAX_FILE:
+        if not isinstance(entry.get("size"), int) or not 0 <= entry["size"] <= limit:
             raise BridgeError("file_too_large", 413)
         blob = await self.get(f"/repos/{self.repo}/git/blobs/{entry['sha']}")
         if blob.get("encoding") != "base64":
@@ -298,11 +303,11 @@ class GitHub:
             content = base64.b64decode("".join(blob["content"].split()), validate=True)
         except (KeyError, ValueError, TypeError):
             raise BridgeError("invalid_upstream_response", 502) from None
-        return self.verify_blob(content, entry)
+        return self.verify_blob(content, entry, limit)
 
     @staticmethod
-    def verify_blob(content, entry):
-        if not isinstance(content, bytes) or len(content) != entry["size"] or len(content) > MAX_FILE:
+    def verify_blob(content, entry, limit=MAX_FILE):
+        if not isinstance(content, bytes) or len(content) != entry["size"] or len(content) > limit:
             raise BridgeError("invalid_upstream_response", 502)
         blob_sha = hashlib.sha1(b"blob " + str(len(content)).encode() + b"\0" + content).hexdigest()
         if entry.get("sha") != blob_sha:
@@ -317,19 +322,24 @@ class GitHub:
         file_limit = MAX_SNAPSHOT_FILES if recursive else MAX_FILES
         byte_limit = MAX_SNAPSHOT_TOTAL if recursive else MAX_TOTAL
         entries, skipped, directories = {}, set(), set()
+        total = 0
+        content_limits = {}
 
-        def add(path, entry, origin):
+        def add(path, entry, origin, limit=MAX_FILE):
+            nonlocal total
             safe_path(path)
             if (entry.get("type") != "blob" or entry.get("mode") not in ("100644", "100755")
                     or not immutable_ref(entry.get("sha"))):
                 raise BridgeError("unsupported_repository_entry", 422)
             size = entry.get("size")
-            if not isinstance(size, int) or not 0 <= size <= MAX_FILE:
+            if not isinstance(size, int) or not 0 <= size <= limit:
                 raise BridgeError("file_too_large", 413)
+            total += size - entries.get(path, ({"size": 0}, None))[0]["size"]
             entries[path] = (entry, origin)
+            content_limits[path] = limit
             if len(entries) > file_limit:
                 raise BridgeError("too_many_snapshot_files", 413)
-            if sum(item[0]["size"] for item in entries.values()) > byte_limit:
+            if total > byte_limit:
                 raise BridgeError("snapshot_too_large", 413)
             parts = path.split("/")
             directories.update("/".join(parts[:i]) for i in range(1, len(parts)))
@@ -377,7 +387,7 @@ class GitHub:
                 if not readable(child, policy):
                     raise BridgeError("file_not_allowed", 403)
                 if child != request["program"]:
-                    add(child, entry, self)
+                    add(child, entry, self, MAX_SNAPSHOT_FILE)
 
         # Validate the full manifest and limits before downloading file contents.
         # Bounded workers avoid one task or connection per repository file.
@@ -395,12 +405,12 @@ class GitHub:
                 archived = await self.fetch_archive(self.repo, sha, self.headers, data_entries)
                 if set(archived) != set(data_entries):
                     raise BridgeError("invalid_upstream_response", 502)
-                files.update({path: self.verify_blob(content, data_entries[path])
+                files.update({path: self.verify_blob(content, data_entries[path], content_limits[path])
                               for path, content in archived.items()})
         pending = iter((path, item) for path, item in entries.items() if path not in files)
         async def download():
             for path, (entry, origin) in pending:
-                files[path] = await origin.blob(entry)
+                files[path] = await origin.blob(entry, content_limits[path])
         workers = [asyncio.create_task(download()) for _ in range(min(BLOB_CONCURRENCY, len(entries)))]
         try:
             await asyncio.gather(*workers)

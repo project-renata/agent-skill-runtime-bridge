@@ -9,7 +9,7 @@ resolution-markers = [
 
 [[package]]
 name = "agent-skill-runtime-bridge"
-version = "0.3.0"
+version = "0.4.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastmcp" },

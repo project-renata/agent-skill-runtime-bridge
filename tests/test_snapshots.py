@@ -133,6 +133,66 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(status, 200, body)
             self.assertEqual(len(body["result"]["paths"]), 81)
 
+    def test_large_directory_files_execute_unchanged_in_both_adapters(self):
+        big = b"x" * (2 * 1024 * 1024)
+        for execute in (execute_inline, execute_subprocess):
+            status, body, fake = self.call(fake=SnapshotGitHub(current={PROGRAM: SCAN, "docs/big.png": big}),
+                files=["docs/"], execute=execute)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["source"]["snapshot"]["bytes"], len(SCAN) + len(big))
+            self.assertEqual(fake.writes, [])
+
+    def test_explicit_file_limit_stays_small_even_in_mixed_requests(self):
+        for selectors in (["docs/big.png"], ["docs/", "docs/big.png"]):
+            fake = SnapshotGitHub(current={PROGRAM: SCAN, "docs/big.png": b"x" * (512 * 1024 + 1)})
+            status, body, _ = self.call(fake=fake, files=selectors)
+            self.assertEqual((status, body["error"]["code"]), (413, "file_too_large"))
+            self.assertFalse(any("/git/blobs/" in c for c in fake.calls))
+
+    def test_directory_file_limit_rejects_before_download(self):
+        fake = SnapshotGitHub(current={PROGRAM: SCAN, "docs/big.png": b"x" * (4 * 1024 * 1024 + 1)})
+        status, body, _ = self.call(fake=fake, files=["docs/"])
+        self.assertEqual((status, body["error"]["code"]), (413, "file_too_large"))
+        self.assertFalse(any("/git/blobs/" in c for c in fake.calls))
+
+    def test_changed_large_file_is_rejected_with_zero_writes(self):
+        # Small request, large output: must not inherit the directory read grant.
+        program = SCAN.replace(b'path.write_text(text, encoding="utf-8")',
+                              b'path.write_text(text * (512 * 1024 + 1), encoding="utf-8")')
+        fake = SnapshotGitHub(current={PROGRAM: program, "docs/big.txt": b"x" * (512 * 1024 + 1)})
+        status, body, _ = self.call(fake=fake, files=["docs/"], input={"changes": {"docs/big.txt": "y"}},
+            write={"expected_commit": HEAD, "message": "oversized"})
+        self.assertEqual((status, body["error"]["code"]), (413, "file_too_large"))
+        self.assertEqual(fake.writes, [])
+
+    def test_large_baseline_allows_small_atomic_write(self):
+        fake = SnapshotGitHub(current={PROGRAM: SCAN, "docs/big.png": b"x" * (2 * 1024 * 1024), "docs/a.md": b"old"})
+        status, body, _ = self.call(fake=fake, files=["docs/"], input={"changes": {"docs/a.md": "new"}},
+            write={"expected_commit": HEAD, "message": "small edit"})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["write"]["changed"], ["docs/a.md"])
+        self.assertEqual(len(fake.writes), 3)
+
+    def test_new_capacity_exceeds_measured_inventory_with_bounded_headroom(self):
+        from bridge.core import MAX_SNAPSHOT_FILES, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_DIRS, MAX_TREE_ENTRIES
+        # Exercise a manifest larger than the measured corpus without retaining
+        # hundreds of MiB or producing a result larger than the result cap.
+        from bridge.core import Execution
+        count = 16000
+        content = {PROGRAM: SCAN, **{f"docs/{i // 2}/x{i}.md": b"x" for i in range(count)}}
+        fake = SnapshotGitHub(current=content)
+        async def archive(repo, sha, headers, entries):
+            return {p: content[p] for p in entries}
+        status, body = asyncio.run(handle(request(program=PROGRAM, files=["docs/"]),
+            "Bearer " + KEY, config(), fake.fetch,
+            lambda files, program, input: Execution({"count": len(files)}, {}), fake.send, archive))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["result"]["count"], count + 1)
+        self.assertGreaterEqual(MAX_SNAPSHOT_FILES, 2 * 15455)
+        self.assertGreaterEqual(MAX_SNAPSHOT_TOTAL, 2 * 179647667)
+        self.assertGreaterEqual(MAX_SNAPSHOT_DIRS, 2 * 6292)
+        self.assertGreaterEqual(MAX_TREE_ENTRIES, MAX_SNAPSHOT_FILES + MAX_SNAPSHOT_DIRS)
+
     def test_historical_snapshot_is_immutable_and_reports_commit(self):
         status, body, _ = self.call(ref=OLD, files=["docs/"], input={"read": "docs/a.md"})
         self.assertEqual(status, 200, body)
@@ -225,6 +285,16 @@ class SnapshotTests(unittest.TestCase):
             schema = next(t for t in listing if t["name"] == "run_readonly_skill")["inputSchema"]
             self.assertIn("program_ref", schema["properties"])
             self.assertNotIn("program_ref", schema["required"])
+            self.assertIn("historical data ref", schema["properties"]["program_ref"]["description"])
+            write_schema = next(t for t in listing if t["name"] == "run_write_skill")["inputSchema"]
+            self.assertNotIn("program_ref", write_schema["properties"])
+            targets = rpc(client, "tools/call", {"name": "list_runtime_targets", "arguments": {}}).json()["result"]["structuredContent"]
+            self.assertEqual(targets["runtime_version"], "0.4.0")
+            limits = targets["snapshot_usage"]["limits"]
+            self.assertEqual(limits["directory_files"], 32768)
+            self.assertEqual(limits["directory_bytes"], 384 * 1024 * 1024)
+            self.assertEqual(limits["directory_file_bytes"], 4 * 1024 * 1024)
+            self.assertEqual(limits["file_bytes"], 512 * 1024)
             result = rpc(client, "tools/call", {"name": "run_readonly_skill", "arguments": {"repository": "owner/private", "ref": OLD, "program_ref": "main", "program": PROGRAM, "files": ["docs/"], "input": {}}}).json()["result"]
             self.assertFalse(result.get("isError"), result)
             self.assertEqual(result["structuredContent"]["result"]["paths"], ["docs/a.md", PROGRAM])
@@ -252,6 +322,17 @@ class ArchiveTests(unittest.TestCase):
             ("repo/other.txt", b"not selected", "file"), ("repo/link", b"", "link")])
         self.assertEqual(read_archive(stream, {"docs/a.md": {"size": 4}}), {"docs/a.md": b"data"})
 
+    def test_archive_accepts_large_normal_file_and_keeps_independent_byte_cap(self):
+        from bridge.http import read_archive
+        content = b"x" * (2 * 1024 * 1024)
+        result = read_archive(self.archive([("repo/docs/big.png", content, "file")]),
+                              {"docs/big.png": {"size": len(content)}})
+        self.assertEqual(result["docs/big.png"], content)
+        # Compressed input is tiny; the expanded-byte limit must still hold.
+        with patch("bridge.core.MAX_ARCHIVE_BYTES", 1024 * 1024), self.assertRaisesRegex(BridgeError, "archive_too_large"):
+            read_archive(self.archive([("repo/docs/big.png", content, "file")]),
+                         {"docs/big.png": {"size": len(content)}})
+
     def test_archive_rejects_escape_links_duplicates_missing_or_oversized_data(self):
         from bridge.http import read_archive
         for members, entries in [
@@ -262,7 +343,7 @@ class ArchiveTests(unittest.TestCase):
             ([("repo/other.txt", b"x", "file")], {"docs/a.md": {"size": 1}})]:
             with self.subTest(members=members), self.assertRaises(BridgeError):
                 read_archive(self.archive(members), entries)
-        with patch("bridge.core.MAX_SNAPSHOT_TOTAL", 10), self.assertRaisesRegex(BridgeError, "archive_too_large"):
+        with patch("bridge.core.MAX_ARCHIVE_BYTES", 10), self.assertRaisesRegex(BridgeError, "archive_too_large"):
             read_archive(self.archive([("repo/a", b"x" * 1000, "file")]), {"a": {"size": 1000}})
 
     def test_large_snapshot_uses_one_archive_and_verifies_every_blob(self):

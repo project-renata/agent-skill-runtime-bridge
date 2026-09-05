@@ -4,7 +4,7 @@ import json
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
-from .core import BridgeError, MAX_FILE, MAX_TREE_RESPONSE
+from .core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_TREE_RESPONSE
 
 
 class NoRedirects(HTTPRedirectHandler):
@@ -18,7 +18,8 @@ async def send_json(method, url, headers, body=None):
             data = json.dumps(body, ensure_ascii=False, allow_nan=False).encode() if body is not None else None
             request_headers = {**headers, "Content-Type": "application/json"} if data is not None else headers
             with build_opener(NoRedirects).open(Request(url, data=data, headers=request_headers, method=method), timeout=15) as response:
-                limit = MAX_TREE_RESPONSE if "/git/trees/" in url else MAX_FILE * 2
+                limit = (MAX_TREE_RESPONSE if "/git/trees/" in url else
+                         MAX_SNAPSHOT_FILE * 2 if "/git/blobs/" in url else MAX_FILE * 2)
                 raw = response.read(limit + 1)
                 if len(raw) > limit:
                     raise BridgeError("upstream_response_too_large", 502)
@@ -54,11 +55,11 @@ def read_archive(stream, entries):
     """Stream normal selected files only; never extract paths or Git metadata."""
     import gzip
     import tarfile
-    from .core import MAX_SNAPSHOT_TOTAL, MAX_TREE_ENTRIES, safe_path
+    from .core import MAX_ARCHIVE_BYTES, MAX_TREE_ENTRIES, safe_path
 
     files, prefix, count = {}, None, 0
-    compressed = BoundedReader(stream, MAX_SNAPSHOT_TOTAL * 2)
-    expanded = BoundedReader(gzip.GzipFile(fileobj=compressed), MAX_SNAPSHOT_TOTAL * 2)
+    compressed = BoundedReader(stream, MAX_ARCHIVE_BYTES)
+    expanded = BoundedReader(gzip.GzipFile(fileobj=compressed), MAX_ARCHIVE_BYTES)
     try:
         with tarfile.open(fileobj=expanded, mode="r|") as archive:
             for member in archive:
@@ -76,7 +77,9 @@ def read_archive(stream, entries):
                     continue
                 if not member.isfile() or member.size != entries[path]["size"] or path in files:
                     raise BridgeError("unsupported_repository_entry", 422)
-                content = archive.extractfile(member).read(MAX_FILE + 1)
+                if not 0 <= member.size <= MAX_SNAPSHOT_FILE:
+                    raise BridgeError("file_too_large", 413)
+                content = archive.extractfile(member).read(member.size + 1)
                 if len(content) != member.size:
                     raise BridgeError("invalid_upstream_response", 502)
                 files[path] = content

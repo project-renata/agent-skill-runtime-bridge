@@ -173,11 +173,37 @@ validation and execution prefix policy. Only that program file is overlaid at
 its canonical path; all other selected files come from `ref`.
 `source.program_commit` identifies the resolved code revision. Omitting the field
 keeps the original single-version behavior. Write requests reject `program_ref`.
+MCP `run_readonly_skill.inputSchema.properties.program_ref` explicitly publishes
+this optional parameter; runtime version 0.4.0 identifies this schema/capacity
+release. After deployment, refresh the app in ChatGPT app settings to pull the
+server's current tool definitions. An already imported tool schema can remain
+older than the backend; deployment alone does not prove the client refreshed.
+Check that the callable schema includes `program_ref` before calling:
+
+```json
+{
+  "repository": "project-renata/project-renata",
+  "ref": "e714840affe01f5019e786f5aaf6d69278380d6c",
+  "program_ref": "main",
+  "program": "memory/skill/workflows/renata-recall/scripts/recall.py",
+  "files": ["memory/story/", "memory/fable/"],
+  "input": {"action": "catalog", "paths": ["memory/story/STORIES.md", "memory/fable/FABLES.md"]}
+}
+```
+
+ChatGPT's [developer-mode documentation](https://developers.openai.com/api/docs/guides/developer-mode#how-to-use)
+describes app refresh for updated tools, descriptions and server instructions.
 
 Explicit-file callers retain the 31-selector, 32-file, 512 KiB-per-file and 2 MiB
-snapshot limits. A request containing directories permits up to 2,048 files,
-16 MiB total and 4,096 directories; the selector and per-file limits still apply.
-Recursive tree responses are bounded at 8 MiB and 8,192 entries. Oversized or
+snapshot limits. Directory-selected files permit 4 MiB each, with a snapshot cap
+of 32,768 files, 384 MiB total and 16,384 directories (31 selectors still apply).
+The program and explicit file selectors retain their 512 KiB cap, including in
+mixed requests. Recursive tree responses are bounded at 32 MiB and 65,536 entries.
+These bounded defaults allow more than twice the measured September 2026
+Story/Fable inventory: 15,455 files, 171.3 MiB, 6,292 directories, 1.68 MiB largest
+file. Unchanged large files are allowed during change collection without copying
+the entire baseline into a second dictionary. New/changed files retain the
+512 KiB-per-file, 2 MiB-total write limits. Oversized or
 truncated snapshots fail before execution with `too_many_snapshot_files`,
 `snapshot_too_large`, `too_many_snapshot_directories`, `too_many_snapshot_entries`,
 `file_too_large`, `upstream_response_too_large` or `repository_tree_truncated`.
@@ -187,7 +213,7 @@ The loader validates the entire manifest before downloading blobs. CPython can
 fetch a bounded archive for large selections in small repositories, verify every
 selected Git blob hash, and materialize only the requested files. Other loads use
 bounded concurrent blob fetches. Archives are streamed with both compressed and
-expanded size caps; extraction never writes filesystem paths. GitHub credentials
+expanded size caps (512 MiB each, including tar overhead); extraction never writes filesystem paths. GitHub credentials
 are not forwarded to download redirects. Vercel requests allow up to 300 seconds
 for materialization; the Python execution timeout remains 10 seconds.
 
@@ -322,8 +348,9 @@ Never claim arbitrary hostile programs are safe on either adapter.
 
 The protocol rejects absolute/parent paths, symlinks, submodules and oversized
 files. Git tree modes and blob hashes are verified. GitHub redirects are disabled.
-Limits: 64 KiB request, 32 snapshot files, 512 KiB per file, 2 MiB snapshot,
-512 KiB result. These bounds apply to the first milestone; large jobs are excluded.
+Explicit-file limits: 64 KiB request, 32 snapshot files, 512 KiB per file,
+2 MiB snapshot, 512 KiB result. Directory capacity is documented above;
+write transactions retain the original change count and byte caps.
 
 ## Validation
 
