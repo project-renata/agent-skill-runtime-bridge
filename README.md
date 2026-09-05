@@ -137,6 +137,66 @@ Configure these on the hosting provider, never commit them:
 Vercel: `vercel link`, add the three environment variables for the intended deployment
 environment, then `vercel --prod`. The Python function uses only the standard library.
 
+### Repository directories and immutable history
+
+The existing `files` list accepts both files and directory selectors. A single
+trailing `/` selects every normal file recursively beneath that repository path:
+
+```json
+{
+  "repository": "owner/private-skills",
+  "ref": "main",
+  "program": "memory/skill/tools/example/scripts/example.py",
+  "files": ["memory/story/", "memory/fable/", "AGENTS.md"],
+  "input": {}
+}
+```
+
+The same Python `run(root, input)` can use `Path(root).rglob("*.md")` and ordinary
+filesystem reads on Local and Web. Directory loads retain repository-relative
+paths; overlapping selectors are deduplicated. Symlinks and submodules are
+skipped inside recursive loads and still rejected when explicitly requested.
+Git metadata and the Bridge input payload are never materialized into root.
+The caller chooses subtrees, without enumerating their files or using a tree API.
+
+For repositories with `read_all: true`, readonly `ref` also accepts a full
+lowercase 40-character Git commit SHA. The Bridge resolves it through that
+repository's Git commits endpoint and verifies the returned SHA. Unknown commits
+fail; named refs retain the current policy allowlist. `source.commit` is always
+the resolved data commit. A commit SHA is never a write target, even if listed
+in the write policy.
+
+Optional readonly `program_ref` chooses the canonical program version in the
+same repository independently of the data snapshot. Use this when the program
+was introduced after the historical data commit. It follows the same ref
+validation and execution prefix policy. Only that program file is overlaid at
+its canonical path; all other selected files come from `ref`.
+`source.program_commit` identifies the resolved code revision. Omitting the field
+keeps the original single-version behavior. Write requests reject `program_ref`.
+
+Explicit-file callers retain the 31-selector, 32-file, 512 KiB-per-file and 2 MiB
+snapshot limits. A request containing directories permits up to 2,048 files,
+16 MiB total and 4,096 directories; the selector and per-file limits still apply.
+Recursive tree responses are bounded at 8 MiB and 8,192 entries. Oversized or
+truncated snapshots fail before execution with `too_many_snapshot_files`,
+`snapshot_too_large`, `too_many_snapshot_directories`, `too_many_snapshot_entries`,
+`file_too_large`, `upstream_response_too_large` or `repository_tree_truncated`.
+`source.snapshot` reports loaded file/byte counts and skipped entries.
+
+The loader validates the entire manifest before downloading blobs. CPython can
+fetch a bounded archive for large selections in small repositories, verify every
+selected Git blob hash, and materialize only the requested files. Other loads use
+bounded concurrent blob fetches. Archives are streamed with both compressed and
+expanded size caps; extraction never writes filesystem paths. GitHub credentials
+are not forwarded to download redirects. Vercel requests allow up to 300 seconds
+for materialization; the Python execution timeout remains 10 seconds.
+
+Directory selectors also work on allowed write branches. The expanded files form
+the baseline for the existing create/update/delete diff. `expected_commit`,
+unread-file protection, per-ref write scope and the 32-change atomic commit limit
+are unchanged. An immutable read is not permission to write its commit: read the
+current write branch again before preparing a write transaction.
+
 ### Whole-repository access and separate write boundaries per branch
 
 Use explicit whole-repository modes instead of root-like or wildcard path prefixes:

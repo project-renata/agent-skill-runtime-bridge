@@ -15,9 +15,10 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from bridge.core import Settings, handle
+from bridge.core import (Settings, handle, MAX_FILES, MAX_FILE, MAX_TOTAL,
+                         MAX_SNAPSHOT_FILES, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_DIRS)
 from bridge.execution import execute_subprocess
-from bridge.http import fetch_json, send_json
+from bridge.http import fetch_json, send_json, fetch_archive
 
 
 class WriteIntent(BaseModel):
@@ -41,7 +42,7 @@ class OwnerGitHubProvider(GitHubProvider):
         return None
 
 
-def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess):
+def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None):
     if auth is None:
         raise ValueError('MCP authentication is required')
     mcp = FastMCP('Agent Skill Runtime Bridge', version='0.3.0', auth=auth,
@@ -64,6 +65,16 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
         result = {'repositories': settings.repositories}
+        result['snapshot_usage'] = {
+            'files': 'Keep files=["path/file.md"] for explicit files. A trailing slash selects a recursive subtree: files=["memory/story/","memory/fable/"]. Python sees the repository-relative files under root and can use pathlib/rglob without a caller-generated file list.',
+            'history': 'On read_all repositories, readonly ref also accepts a full lowercase 40-character commit SHA fetched from that repository. Named refs retain their allowlist. source.commit is the resolved data commit; immutable commits are never write targets.',
+            'program_ref': 'Optional readonly program_ref selects the canonical program version in the same repository when it is newer than the data snapshot. Only the program file is overlaid at its canonical path; other files come from ref. Omit for a single-version snapshot. source.program_commit records the resolved code commit. Writes reject program_ref.',
+            'safety': 'Directory loads skip symlinks/submodules, reject unsafe paths and fail on truncated trees or limits. Explicit forbidden entries remain errors. No git metadata or Bridge input file is placed in root. Write commit, SHA preconditions and atomic semantics are unchanged.',
+            'limits': {'selectors': MAX_FILES - 1, 'file_bytes': MAX_FILE,
+                       'explicit_files': MAX_FILES, 'explicit_bytes': MAX_TOTAL,
+                       'directory_files': MAX_SNAPSHOT_FILES, 'directory_bytes': MAX_SNAPSHOT_TOTAL,
+                       'directories': MAX_SNAPSHOT_DIRS, 'write_changes': MAX_FILES},
+        }
         if any(policy.get('repo_files') for policy in settings.repositories.values()):
             result['repo_files_usage'] = {
                 'helper': 'Use repository repo_files.ref and repo_files.program for the canonical file atomics.',
@@ -92,16 +103,20 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
         # Isolate blocking GitHub I/O and the child process from the ASGI loop.
         def invoke():
             return asyncio.run(handle(json.dumps(arguments, ensure_ascii=False).encode(),
-                'Bearer ' + settings.key, settings, fetch, execute, send))
+                'Bearer ' + settings.key, settings, fetch, execute, send, archive))
         status, result = await asyncio.to_thread(invoke)
         if status != 200:
             raise ToolError(result['error']['code'])
         return result
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})
-    async def run_readonly_skill(repository: str, ref: str, program: str, files: list[str], input: dict) -> dict:
-        """Use this to run an allowed repository Python program with explicitly loaded files. Temporary file edits are discarded. Returns JSON result and source.commit for a later write."""
-        return await run(dict(repository=repository, ref=ref, program=program, files=files, input=input))
+    async def run_readonly_skill(repository: str, ref: str, program: str, files: list[str], input: dict,
+                                 program_ref: str | None = None) -> dict:
+        """Run canonical Python with repository-relative files or recursive directories (trailing /) in root. read_all repositories accept historical commit SHA refs. Optional program_ref selects the code version independently of the data snapshot. Temporary edits are discarded; source records resolved commits."""
+        arguments = dict(repository=repository, ref=ref, program=program, files=files, input=input)
+        if program_ref is not None:
+            arguments['program_ref'] = program_ref
+        return await run(arguments)
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': True, 'idempotentHint': False})
     async def run_write_skill(repository: str, ref: str, program: str, files: list[str], input: dict, write: WriteIntent) -> dict:
@@ -147,7 +162,7 @@ def production_app(env=None):
         fastmcp_access_token_expiry_seconds=3600,
         allowed_client_redirect_uris=['https://chatgpt.com/connector/oauth/*',
                                       'https://chatgpt.com/connector_platform_oauth_redirect'])
-    server = create_server(Settings.from_env(env), auth)
+    server = create_server(Settings.from_env(env), auth, archive=fetch_archive)
     app = server.http_app(path='/mcp', stateless_http=True, json_response=True,
                           host_origin_protection=True, allowed_hosts=[parsed.netloc],
                           allowed_origins=['https://chatgpt.com', base])

@@ -2,7 +2,7 @@
 import json
 from workers import WorkerEntrypoint, Response, fetch
 
-from bridge.core import BridgeError, MAX_FILE, MAX_REQUEST, Settings, handle
+from bridge.core import BridgeError, MAX_FILE, MAX_REQUEST, MAX_TREE_RESPONSE, Settings, handle
 from bridge.execution import execute_inline
 
 
@@ -17,7 +17,7 @@ async def send_json(method, url, headers, body=None):
     if response.status not in (200, 201):
         raise BridgeError("github_request_failed", 502)
     raw = await response.text()
-    if len(raw.encode()) > MAX_FILE * 2:
+    if len(raw.encode()) > (MAX_TREE_RESPONSE if "/git/trees/" in url else MAX_FILE * 2):
         raise BridgeError("upstream_response_too_large", 502)
     return json.loads(raw)
 

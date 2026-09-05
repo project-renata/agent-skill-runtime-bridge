@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 import tempfile
 
-from .core import BridgeError, Execution, MAX_FILE, MAX_FILES, MAX_RESULT, MAX_TOTAL, safe_path
+from .core import (BridgeError, Execution, MAX_FILE, MAX_FILES, MAX_RESULT,
+                   MAX_TOTAL, MAX_SNAPSHOT_DIRS, safe_path)
 
 
 def populate(root, files):
@@ -32,9 +33,11 @@ def invoke(root, program, request):
 def collect_changes(root, baseline):
     import os
     current, size, visited = {}, 0, 0
+    file_limit = max(MAX_FILES * 2, len(baseline) + MAX_FILES)
+    byte_limit = max(MAX_TOTAL * 2, sum(map(len, baseline.values())) + MAX_TOTAL)
     for directory, dirs, names in os.walk(root, followlinks=False):
         visited += 1
-        if visited > 256:
+        if visited > MAX_SNAPSHOT_DIRS:
             raise BridgeError("too_many_snapshot_directories", 413)
         for name in dirs + names:
             if (Path(directory) / name).is_symlink():
@@ -42,18 +45,16 @@ def collect_changes(root, baseline):
         for name in names:
             path = Path(directory) / name
             relative = path.relative_to(root).as_posix()
-            if relative == ".bridge-input.json":
-                continue
             safe_path(relative)
             if not path.is_file():
                 raise BridgeError("unsupported_repository_entry", 422)
             if path.stat().st_size > MAX_FILE:
                 raise BridgeError("file_too_large", 413)
-            if len(current) >= MAX_FILES * 2:
+            if len(current) >= file_limit:
                 raise BridgeError("too_many_snapshot_files", 413)
             content = path.read_bytes()
             size += len(content)
-            if len(content) > MAX_FILE or size > MAX_TOTAL * 2:
+            if len(content) > MAX_FILE or size > byte_limit:
                 raise BridgeError("snapshot_too_large", 413)
             current[relative] = content
     changes = {path: content for path, content in current.items() if baseline.get(path) != content}
@@ -88,11 +89,11 @@ def execute_subprocess(files, program, request, timeout=10):
     import time
 
     with tempfile.TemporaryDirectory(prefix="skill-") as directory:
-        root = Path(directory)
+        # Host input is outside the repository view, including during rglob().
+        root = Path(directory) / "repository"
+        root.mkdir()
         populate(root, files)
-        payload = root / ".bridge-input.json"
-        if payload.exists():
-            raise BridgeError("reserved_path")
+        payload = Path(directory) / "input.json"
         payload.write_text(json.dumps(request), encoding="utf-8")
         runner = Path(__file__).with_name("runner.py")
         process = subprocess.Popen(
