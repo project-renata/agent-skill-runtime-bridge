@@ -8,3 +8,5 @@ node_modules
 .dev.vars*
 .wrangler
 wrangler.jsonc
+python_modules
+pylock.toml

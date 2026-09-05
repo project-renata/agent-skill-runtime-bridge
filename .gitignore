@@ -5,6 +5,7 @@
 .dev.vars*
 .wrangler/
 cloudflare/vendor/
+python_modules/
 node_modules/
 __pycache__/
 *.py[cod]

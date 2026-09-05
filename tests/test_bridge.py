@@ -64,7 +64,7 @@ class Conformance(unittest.TestCase):
             with self.subTest(adapter=execute.__name__):
                 (status, body), fake = self.call(execute=execute)
                 self.assertEqual(status, 200, body)
-                self.assertEqual(body["result"], {"files": [{"path": "docs/筆記.md", "title": "你好"}], "count": 1})
+                self.assertEqual(body["result"], {"files": [{"path": "docs/筆記.md", "title": "你好", "line_count": 2}], "count": 1})
                 self.assertEqual(body["source"]["commit"], SHA)
                 self.assertEqual(body["source"]["sha256"], hashlib.sha256(PROBE).hexdigest())
                 self.assertEqual(fake.calls.count("/git/ref/heads/main"), 1)

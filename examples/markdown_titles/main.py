@@ -18,12 +18,13 @@ def run(repository, request):
         path = (root / name).resolve(strict=True)
         if not path.is_relative_to(root):
             raise ValueError("File is outside the repository")
+        lines = path.read_text(encoding="utf-8").splitlines()
         title = next(
-            (line[2:].strip() for line in path.read_text(encoding="utf-8").splitlines()
+            (line[2:].strip() for line in lines
              if line.startswith("# ")),
             None,
         )
-        results.append({"path": name, "title": title})
+        results.append({"path": name, "title": title, "line_count": len(lines)})
     return {"files": results, "count": len(results)}
 
 
