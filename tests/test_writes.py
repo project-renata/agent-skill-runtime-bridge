@@ -1,6 +1,4 @@
 import asyncio
-import base64
-import json
 import unittest
 
 from bridge.core import BridgeError, Settings, handle

@@ -7,7 +7,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from bridge.core import BridgeError, MAX_REQUEST, MAX_RESULT, Settings, handle, parse_request
+from bridge.core import BridgeError, MAX_REQUEST, Settings, handle
 from bridge.execution import execute_inline, execute_subprocess
 
 KEY = "test-key-" + "x" * 32

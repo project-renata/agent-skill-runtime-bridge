@@ -419,3 +419,98 @@ Until all OAuth variables are configured, the MCP/OAuth routes return 503
 `mcp_oauth_not_configured`; no anonymous execution fallback is provided.
 The MCP adapter currently targets Vercel/CPython. Cloudflare continues to serve
 the provider-neutral HTTP core; its MCP/OAuth adapter is not implemented.
+
+## GitHub control plane (0.5.0)
+
+The authenticated MCP server optionally exposes nine additional tools:
+`create_github_issue`, `read_github_issue`, `add_github_issue_label`,
+`add_github_issue_comment`, `read_github_issue_comments`, `read_github_pr`,
+`read_github_pr_review`, `dispatch_local_agent`, `accept_local_agent_result`.
+Issue reads include state; PR reads include body/head/base/draft/state. Review
+reads include complete changed-file lists, available patches, check runs and
+commit statuses, with a second head/base read to reject concurrent changes.
+Missing GitHub permissions or truncated data fail closed. Missing patches are
+explicitly reported and require source inspection before deciding PASS.
+
+Configure `BRIDGE_GITHUB_CONTROL` as JSON, in addition to existing OAuth/Redis:
+
+```json
+{
+  "trusted_user_id": "123456",
+  "trusted_login": "your-github-login",
+  "central_repository": "owner/private-tasks",
+  "repositories": {
+    "owner/private-tasks": {
+      "target_branch": "main",
+      "labels": ["documentation", "bug"],
+      "modes": ["controlled"],
+      "required_sources": ["AGENTS.md"]
+    }
+  }
+}
+```
+
+Every repository must also exist in `BRIDGE_REPOSITORIES`; its target branch
+must match the runtime policy ref. The numeric control identity must be in the
+existing OAuth user-ID allowlist. Every operation verifies that the server's
+GitHub token belongs to that exact numeric ID/login and that all involved repos
+are private. Supply Issues read/write and Pull requests/checks/commit statuses
+read permissions to the existing server credential for the allowlisted repos.
+Only the central runner needs contents/PR merge permissions for dispatch.
+Tokens remain in server transport; canonical Python retains its empty credential
+environment. There is no endpoint/method/token input, settings/secrets/ref API,
+workflow editing, repository deletion or merge operation in this control plane.
+Ordinary issue tools reject reserved contract/evidence markers; dispatch labels
+are only applied by the high-level operations.
+
+`dispatch_local_agent` takes a strict `request` object: `task_repository`,
+`target_repository`, short Traditional Chinese `title`, `task`, `allowed_paths`,
+`sources`, `validation_profile` (`documentation`, `python-tests`, or
+`repository-tests`), `commit_message`, `mode` (`controlled` or `maintainer`),
+and `idempotency_key`. Maintainer must be explicitly enabled by policy and uses
+repository-tests. The tool creates/read-verifies the existing
+`LOCAL_CODING_DISPATCH_REQUEST_V1` Task, adds `local-coding-request`, then creates
+a `LOCAL_CODING_DISPATCH_TICKET_V2` control Issue with `local-coding-dispatch` in
+the central repo. The receipt includes the exact request contract, Task URL,
+number, creation time/status and central ticket URL. The existing GitHub labeled
+Issue event starts the self-hosted central workflow. Bridge does not run Codex.
+
+After reviewing the Task intent, trusted terminal evidence, exact PR diff and
+validation results, call `accept_local_agent_result` with `request` containing
+`task_repository`, `task_issue`, `target_repository`, `expected_commit_sha` and
+`expected_outcome: "PASS"`. Bridge verifies the latest trusted terminal PASS,
+provider-started/completed, task/target/run/SHA and unique matching ready PR at
+the policy base. It creates/read-verifies a `LOCAL_CODING_ACCEPTANCE_V1` control
+ticket and labels it for central. Same-repo tickets retain the existing four
+fields; cross-repo tickets add `task_repository` (requires the corresponding
+central parser update). Bridge never merges or closes. Central independently
+revalidates the result, merges with `--match-head-commit`, verifies `MERGED`, and
+only then closes the Task. Failure evidence cannot create a PASS ticket.
+
+### Idempotency and recovery
+
+Use one stable key per explicit user request, retaining it across retries.
+High-level operations and ordinary Issue creation atomically claim an operation
+in the **existing Redis** before GitHub creation. A key cannot change intent.
+GitHub Issues carry `LOCAL_AGENT_DISPATCH_RECEIPT_V1` with the hashed operation
+key/fingerprint. Retries reconcile all bounded paginated Issues, including closed
+ones, verify author/contract, repair an interrupted label step, and return
+`existing`. Acceptance derives its key from the task/target/commit, so Work
+retries cannot generate duplicate tickets, including after merge/close.
+
+Claims do not expire: a timeout or crash after POST must never cause a duplicate.
+`creation_pending_or_indeterminate` means the same call may safely be retried to
+find its receipt, but the server will not guess that an uncertain POST failed.
+If no receipt exists after an indeterminate creation, operator diagnosis of that
+specific claim is required before clearing it; use neither a new key nor a new
+Task as a workaround. This is an explicit distributed-transaction failure, not
+a queue or polling service. Redis unavailability blocks creation. GitHub API
+listing limits block uniqueness claims rather than silently truncating.
+
+Production rollout must separately verify backend discovery, authenticated calls,
+ChatGPT's refreshed tool schemas and actual Web tool use. Refresh the existing
+app after deploying; keep the same MCP URL and OAuth registration. Native Work
+callbacks should validate event repository and explicit `ready_for_review` action
+before reading any PR. Other/missing actions exit. The callback reviews via the
+Bridge read tools and creates an acceptance ticket only after deciding PASS;
+central owns the sole merge implementation.

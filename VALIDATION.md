@@ -178,3 +178,20 @@ remains on the private workspace branch. Formal Skill program integration was
 not part of this acceptance. Execution is for operator-trusted Python, without a
 hostile-code sandbox or dynamic package installation. Cloudflare cloud execution
 and expiry-driven OAuth refresh remain unverified.
+
+## GitHub control plane, 0.5.0
+
+Full CPython/MCP suite: 99 tests PASS. Ruff `F,E9` checks on all bridge/api/tests
+sources PASS; Python compile/import checks PASS. This includes existing OAuth
+numeric-ID denial, Redis OAuth persistence across app recreation, program_ref,
+historical/directory snapshots, canonical child credential separation and atomic
+repository-write regressions. New tests exercise real ASGI MCP discovery/auth,
+strict inputs, reserved operations, server credential identity, private repo policy,
+dispatch Task/V2 ticket contracts and label readback, repeated/concurrent/ambiguous
+creation, Redis atomic durable claims, PR identity/diff/check reads, moving review
+snapshots, trusted terminal evidence, acceptance identity mismatches, replay after
+merge/close, and creation without any merge/ref API.
+
+The GitHub transport is simulated in these tests. They do not establish hosted
+permissions, refreshed ChatGPT schemas, runner event delivery or a zero-relay
+production loop; those are recorded separately after actual execution.

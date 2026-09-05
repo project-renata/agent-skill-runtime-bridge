@@ -1,7 +1,6 @@
 """Whole-repository reads never widen execution or branch-specific writes."""
 import asyncio
 from copy import deepcopy
-import json
 import unittest
 
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
