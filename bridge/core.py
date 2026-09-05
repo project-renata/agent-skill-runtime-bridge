@@ -50,6 +50,11 @@ def readable(path, policy):
         path, policy.get("data_prefixes", []) + policy["program_prefixes"])
 
 
+def writable(path, policy, ref):
+    return ref in policy.get("write_all_refs", []) or under(
+        path, write_prefixes_for(policy, ref))
+
+
 class Settings:
     def __init__(self, key, repositories, github_token=""):
         if not isinstance(key, str) or len(key) < 32:
@@ -70,12 +75,17 @@ class Settings:
                     raise BridgeError("server_not_configured", 503)
                 for prefix in prefixes:
                     safe_path(prefix)
-            for field in ("additional_refs", "write_refs", "write_prefixes"):
+            for field in ("additional_refs", "write_refs", "write_prefixes", "write_all_refs"):
                 values = policy.get(field, [])
                 if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
                     raise BridgeError("server_not_configured", 503)
             for prefix in policy.get("write_prefixes", []):
                 safe_path(prefix)
+            for ref in policy.get("write_all_refs", []):
+                if (ref not in policy.get("write_refs", [])
+                        or ref not in [policy["ref"], *policy.get("additional_refs", [])]
+                        or policy.get("write_prefixes")):
+                    raise BridgeError("server_not_configured", 503)
             if "write_prefixes_by_ref" in policy:
                 grants = policy["write_prefixes_by_ref"]
                 if not isinstance(grants, dict) or policy.get("write_prefixes"):
@@ -83,6 +93,7 @@ class Settings:
                 for ref, prefixes in grants.items():
                     if (ref not in policy.get("write_refs", [])
                             or ref not in [policy["ref"], *policy.get("additional_refs", [])]
+                            or ref in policy.get("write_all_refs", [])
                             or not isinstance(prefixes, list) or not prefixes):
                         raise BridgeError("server_not_configured", 503)
                     for prefix in prefixes:
@@ -105,12 +116,11 @@ class Settings:
                 writer = safe_path(authoring["program"])
                 programs = safe_path(authoring["program_prefix"])
                 data = safe_path(authoring["data_prefix"])
-                writable = write_prefixes_for(policy, authoring["ref"])
                 if (not writer.endswith(".py") or not under(writer, policy["program_prefixes"])
                         or not under(programs, policy["program_prefixes"])
-                        or not under(programs, writable)
+                        or not writable(programs, policy, authoring["ref"])
                         or not readable(data, policy)
-                        or not under(data, writable)):
+                        or not writable(data, policy, authoring["ref"])):
                     raise BridgeError("server_not_configured", 503)
         self.key, self.repositories, self.github_token = key, repositories, github_token
 
@@ -152,7 +162,8 @@ def parse_request(raw, authorization, settings):
                 or not re.fullmatch(r"[0-9a-f]{40}", write["expected_commit"])):
             raise BridgeError("invalid_write_request")
         if (request["ref"] not in policy.get("write_refs", [])
-                or not write_prefixes_for(policy, request["ref"])
+                or (request["ref"] not in policy.get("write_all_refs", [])
+                    and not write_prefixes_for(policy, request["ref"]))
                 or re.fullmatch(r"[0-9a-f]{40}", request["ref"])):
             raise BridgeError("write_not_allowed", 403)
     program = safe_path(request["program"])
@@ -256,7 +267,7 @@ class GitHub:
             raise BridgeError("too_many_changes", 413)
         entries, total = [], 0
         for path, content in sorted(changes.items()):
-            if not under(safe_path(path), write_prefixes_for(policy, request["ref"])):
+            if not writable(safe_path(path), policy, request["ref"]):
                 raise BridgeError("write_path_not_allowed", 403)
             previous = await self.entry(path)
             if previous and (previous.get("type") != "blob" or previous.get("mode") not in ("100644", "100755")):

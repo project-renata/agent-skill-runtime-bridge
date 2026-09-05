@@ -71,7 +71,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
                 'write': 'run_write_skill: input={changes:{path:text_or_null},expect:{path:sha256_or_null},read:[receipt_paths]}; write={expected_commit:source.commit,message:description}. Load existing targets in files; do not list absent paths in files.',
                 'preconditions': 'expect checks optional per-file SHA-256 (null means absent). A failed preflight returns result.ok=false and result.error.code, with zero changes; inspect both outer ok and result.ok.',
                 'receipt': 'result.changes[path] contains operation, before and after. Persisted paths and commit are write.changed and write.commit.',
-                'boundaries': 'read_all=true allows all normal repository-relative files, not traversal, absolute paths, symlinks or submodules. Execution still requires program_prefixes. write_refs plus write_prefixes_by_ref select each branch write boundary; mappings replace legacy write_prefixes.',
+                'boundaries': 'read_all=true allows all normal repository-relative files. write_all_refs grants repository-wide writes on the listed write_refs; other branches use write_prefixes_by_ref or legacy write_prefixes. Traversal, absolute paths, symlinks and submodules remain rejected. Execution still requires program_prefixes. Load existing files and supply expected_commit for writes; follow the repository OS and Skill validation workflows when editing their assets.',
             }
         if any(policy.get('authoring') for policy in settings.repositories.values()):
             # Some clients omit MCP initialize.instructions from model context.

@@ -7,7 +7,7 @@ import unittest
 from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from starlette.testclient import TestClient
 
-from bridge.core import BridgeError, Settings, handle, parse_request
+from bridge.core import BridgeError, Execution, Settings, handle, parse_request
 from bridge.execution import execute_subprocess
 from bridge.mcp_server import create_server
 from test_bridge import KEY, SHA, FakeGitHub, request
@@ -34,6 +34,12 @@ def run(root, data):
 
 
 class RepositoryPolicyTests(unittest.TestCase):
+    def full_write_policy(self):
+        policy = deepcopy(POLICY)
+        del policy["write_prefixes_by_ref"]["main"]
+        policy["write_all_refs"] = ["main"]
+        return policy
+
     def config(self, policy=None):
         return Settings(KEY, {"owner/private": deepcopy(POLICY if policy is None else policy)},
                         "private-credential")
@@ -119,6 +125,76 @@ class RepositoryPolicyTests(unittest.TestCase):
             self.assertEqual(result["structuredContent"]["repositories"]["owner/private"], POLICY)
             self.assertIn("repo_files_usage", result["structuredContent"])
             self.assertIn("authoring_usage", result["structuredContent"])
+
+    def test_whole_write_main_cross_directory_batch_and_workspace_isolation(self):
+        policy = self.full_write_policy()
+        changes = {path: "UTF-8 驗收" for path in ["AGENTS.md", "memory/skill/SKILL.md",
+            "memory/story/test.md", "memory/fable/test.md", "assets/daily/test.md",
+            "launchers/test.sh", "future-category/test.txt", "root-file.txt"]}
+        status, body, fake = self.write(changes, policy=policy)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["write"]["changed"], sorted(changes))
+        self.assertEqual([w[0] for w in fake.writes], ["POST", "POST", "PATCH"])
+        self.assertEqual(len(fake.writes[0][2]["tree"]), len(changes))
+        status, body, fake = self.write(changes, ref="workspace", policy=policy)
+        self.assertEqual((status, body["error"]["code"]), (403, "write_path_not_allowed"))
+        self.assertEqual(fake.writes, [])
+
+    def test_whole_write_configuration_requires_explicit_unambiguous_ref_grants(self):
+        full = self.full_write_policy()
+        for delta in [{"write_all_refs": True}, {"write_all_refs": "main"},
+                      {"write_all_refs": [True]}, {"write_all_refs": ["unknown"]},
+                      {"write_refs": ["workspace"]}, {"write_prefixes": ["memory"]},
+                      {"write_prefixes_by_ref": POLICY["write_prefixes_by_ref"]}]:
+            with self.subTest(delta=delta), self.assertRaises(BridgeError):
+                self.config({**full, **delta})
+        # Removing the all-write grant does not fall back to another branch's grant.
+        status, body, fake = self.write({}, policy={**full, "write_all_refs": []})
+        self.assertEqual((status, body["error"]["code"]), (403, "write_not_allowed"))
+        self.assertEqual(fake.calls, [])
+
+    def test_whole_write_batch_keeps_path_and_git_entry_boundary_before_mutation(self):
+        paths = ["../escape", "/tmp/escape", "assets/../../escape", "C:/escape",
+                 "assets\\..\\escape", ".git/config", "file:///etc/passwd"]
+        cases = [(path, None, "invalid_path") for path in paths]
+        cases += [(path, mode, "unsupported_repository_entry")
+                  for mode in ["120000", "160000"]
+                  for path in ["z-link", "z-link/child.txt"]]
+        for path, mode, error in cases:
+            fake = WritableGitHub(WRITER)
+            if mode:
+                fake.responses["/git/trees/" + "b" * 40]["tree"].append({
+                    "path": "z-link", "mode": mode, "type": "blob" if mode == "120000" else "commit",
+                    "sha": "2" * 40})
+            execution = Execution({}, {"assets/valid.txt": b"valid", path: b"invalid"})
+            status, body = asyncio.run(handle(request(files=[],
+                write={"message": "boundary", "expected_commit": SHA}), "Bearer " + KEY,
+                self.config(self.full_write_policy()), fake.fetch,
+                lambda *args: execution, fake.send))
+            self.assertNotEqual(status, 200, path)
+            self.assertEqual(body["error"]["code"], error, path)
+            self.assertEqual(fake.writes, [], path)
+
+    def test_whole_write_keeps_commit_and_unread_file_guards(self):
+        for expected, files, error in [("0" * 40, [], "branch_conflict"),
+                                       (SHA, [], "unread_file_conflict")]:
+            fake = WritableGitHub(WRITER)
+            status, body = asyncio.run(handle(request(files=files,
+                write={"message": "guard", "expected_commit": expected}), "Bearer " + KEY,
+                self.config(self.full_write_policy()), fake.fetch,
+                lambda *args: Execution({}, {"assets/new.txt": b"new", "docs/筆記.md": b"edit"}),
+                fake.send))
+            self.assertEqual((status, body["error"]["code"]), (409, error))
+            self.assertEqual(fake.writes, [])
+
+    def test_discovery_exposes_whole_write_ref_without_prefix_workaround(self):
+        policy = self.full_write_policy()
+        server = create_server(self.config(policy), StaticTokenVerifier(tokens={AUTH: {"client_id": "test", "scopes": []}}))
+        with TestClient(server.http_app(path="/mcp", stateless_http=True, json_response=True)) as client:
+            result = rpc(client, "tools/call", {"name": "list_runtime_targets", "arguments": {}}).json()["result"]["structuredContent"]
+            self.assertEqual(result["repositories"]["owner/private"], policy)
+            self.assertIn("write_all_refs", result["repo_files_usage"]["boundaries"])
+            self.assertIn("authoring_usage", result)
 
 
 if __name__ == "__main__":

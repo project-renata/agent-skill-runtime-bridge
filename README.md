@@ -82,7 +82,8 @@ program's changes, add:
 ```
 
 The branch is the request's `ref`. The operator must also configure `write_refs`
-and `write_prefixes` for this repository. `additional_refs` optionally permits
+and a write grant (`write_prefixes`, `write_prefixes_by_ref` or `write_all_refs`)
+for this repository. `additional_refs` optionally permits
 other read/execution branches. For example, add these policy fields:
 
 ```json
@@ -92,7 +93,7 @@ other read/execution branches. For example, add these policy fields:
 ```
 
 Load existing files to be changed in `files`; new paths need not be loaded.
-Only UTF-8 regular files under `write_prefixes` can be committed. The Bridge
+Only UTF-8 regular files allowed by the selected ref's write grant can be committed. The Bridge
 detects create/update/delete operations, preserves executable modes on existing
 files, validates the whole batch, creates one tree/commit, and performs a
 fast-forward-only branch update. Files outside the requested snapshot are
@@ -136,9 +137,9 @@ Configure these on the hosting provider, never commit them:
 Vercel: `vercel link`, add the three environment variables for the intended deployment
 environment, then `vercel --prod`. The Python function uses only the standard library.
 
-### Whole-repository reads and separate write boundaries per branch
+### Whole-repository access and separate write boundaries per branch
 
-Use an explicit read mode instead of a root-like or wildcard path prefix:
+Use explicit whole-repository modes instead of root-like or wildcard path prefixes:
 
 ```json
 {
@@ -148,8 +149,8 @@ Use an explicit read mode instead of a root-like or wildcard path prefix:
     "program_prefixes": ["bridge-bootstrap", "runtime-workspace/programs"],
     "additional_refs": ["runtime-bridge/web-workspace"],
     "write_refs": ["main", "runtime-bridge/web-workspace"],
+    "write_all_refs": ["main"],
     "write_prefixes_by_ref": {
-      "main": ["memory/story"],
       "runtime-bridge/web-workspace": ["runtime-workspace/programs", "runtime-workspace/data"]
     },
     "repo_files": {"ref": "main", "program": "bridge-bootstrap/repo_files.py"}
@@ -163,12 +164,20 @@ repository-relative path validation; traversal, absolute paths, symlinks and
 submodules remain rejected. Snapshot file-count and size limits still apply.
 Repository reads never authorize arbitrary Python execution.
 
+`write_all_refs` lists branches allowed to atomically write any normal file in
+the repository, including root files, OS, Skill, Story, Fable and assets. Each
+entry must also be an allowed ref and a write ref. This example gives main
+repository-wide writes; workspace keeps its own narrower grant. This does not
+change the execution allowlist, snapshot limits, required `expected_commit`,
+unread-file protection or filesystem boundary. Repository OS and Skill workflows
+continue to determine when edits are appropriate and how to validate them.
+
 `write_prefixes_by_ref` replaces the legacy shared `write_prefixes` for that
-repository. A missing ref entry grants no writes, even if listed in `write_refs`;
-configuring both a nonempty legacy grant and the map is rejected. Each map key
-must also be an allowed ref and write ref. The example permits Story transactions
-on main while leaving `AGENTS.md`, `memory/skill` and workspace files unwritable
-there. Workspace writes do not inherit the Story grant.
+repository. A ref with neither a whole-repository grant nor a prefix grant has
+no writes, even if listed in `write_refs`. A ref cannot appear in both
+`write_all_refs` and `write_prefixes_by_ref`. Combining a nonempty legacy grant
+with either mode is rejected. Each map key must be an allowed ref and write ref.
+Existing deployments without `write_all_refs` retain their prefix boundaries.
 
 Optional `repo_files` metadata identifies an existing, allowed canonical Python
 program; it grants no additional access and does not create another API. The
