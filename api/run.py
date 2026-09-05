@@ -5,7 +5,7 @@ import os
 
 from bridge.core import BridgeError, MAX_REQUEST, Settings, handle
 from bridge.execution import execute_subprocess
-from bridge.http import fetch_json
+from bridge.http import fetch_json, send_json
 
 
 class handler(BaseHTTPRequestHandler):
@@ -19,7 +19,7 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self):
-        self.reply(200, {"service": "agent-skill-runtime-bridge", "protocol": "0.1", "mode": "read-only"})
+        self.reply(200, {"service": "agent-skill-runtime-bridge", "protocol": "0.2", "mode": "read-write"})
 
     def do_POST(self):
         try:
@@ -31,7 +31,7 @@ class handler(BaseHTTPRequestHandler):
                 raise BridgeError("request_too_large", 413)
             raw = self.rfile.read(length)
             status, payload = asyncio.run(handle(raw, self.headers.get("Authorization", ""),
-                                                 settings, fetch_json, execute_subprocess))
+                                                 settings, fetch_json, execute_subprocess, send_json))
             self.reply(status, payload)
         except BridgeError as error:
             self.reply(error.status, {"ok": False, "error": {"code": error.code}})

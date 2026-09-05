@@ -6,15 +6,16 @@ on Vercel CPython, and in the Cloudflare Python adapter. Programs contain no ven
 
 ## Status and scope
 
-Version 0.1 is the **read-only first milestone**, not the complete read/write MVP.
-It retrieves one Python module plus explicitly requested files, fixes every file to
-one resolved commit, invokes `run`, and returns the result and source hashes.
+Version 0.2 supports reads and opt-in atomic UTF-8 file commits. It retrieves one
+Python module plus explicitly requested files, fixes every file to one resolved
+commit, invokes `run`, and returns the result and source hashes. Programs write
+ordinary temporary files; the Bridge validates and persists an authorized batch.
 Updating a program on the configured branch requires no Bridge deployment.
 
 The portable subset is standard-library Python without subprocesses, native packages,
 local sibling imports, or direct network dependencies. Dependency files can be passed
-in `files` and read with normal file I/O. Automatic import/dependency resolution and
-atomic GitHub writes are not implemented yet. Heavy computation belongs elsewhere.
+in `files` and read with normal file I/O. Automatic import/dependency resolution
+is not implemented yet. Heavy computation belongs elsewhere.
 
 ## Run a normal program locally
 
@@ -66,6 +67,46 @@ Errors use `{"ok":false,"error":{"code":"unauthorized"}}` with a non-2xx status.
 Responses are `Cache-Control: no-store`; stack traces and program logs are omitted.
 GET returns service metadata, not configuration or proof of private access.
 
+### Saving changes
+
+Without a `write` field, temporary modifications are discarded. To commit the
+program's changes, add:
+
+```json
+"write": {
+  "message": "Update notes",
+  "expected_commit": "the-40-character-commit-from-the-previous-read"
+}
+```
+
+The branch is the request's `ref`. The operator must also configure `write_refs`
+and `write_prefixes` for this repository. `additional_refs` optionally permits
+other read/execution branches. For example, add these policy fields:
+
+```json
+"additional_refs": ["bridge-validation"],
+"write_refs": ["bridge-validation"],
+"write_prefixes": ["notes"]
+```
+
+Load existing files to be changed in `files`; new paths need not be loaded.
+Only UTF-8 regular files under `write_prefixes` can be committed. The Bridge
+detects create/update/delete operations, preserves executable modes on existing
+files, validates the whole batch, creates one tree/commit, and performs a
+fast-forward-only branch update. Files outside the requested snapshot are
+preserved via the base tree. Existing but unread files are never overwritten.
+
+The response adds `write: {commit, changed}`. A no-op returns the source commit
+with an empty `changed` list. Stale `expected_commit` or a concurrently changed
+branch returns 409. Read the new state and reconsider the edit before retrying;
+do not blindly replay an operation. A network failure after updating the branch
+can leave an ambiguous result: inspect the branch before retrying. A failed ref
+update may leave unreachable Git objects but does not partially update files.
+
+The ordinary `examples/edit_note/main.py` program accepts
+`input: {"changes": {"notes/today.md": "new text", "notes/old.md": null}}`.
+The caller controls write intent; program input alone never grants permission.
+
 ## Deployment configuration
 
 Configure these on the hosting provider, never commit them:
@@ -73,9 +114,9 @@ Configure these on the hosting provider, never commit them:
 - `BRIDGE_API_KEY`: random ASCII secret, at least 32 characters.
 - `BRIDGE_GITHUB_TOKEN`: fine-grained token restricted to the required repositories.
   **Contents: read-only** suffices for the implemented probe. For a long-term memory
-  integration that will also save changes, provision **Contents: read and write**
-  on the single intended repository. The current code still has no write operation;
-  granting permission does not implement it. Omit the token for public-only repositories.
+  integration that saves changes, provision **Contents: read and write**
+  on the single intended repository, and enable the appropriate write policy.
+  Omit the token for public read-only repositories.
   Select the lifetime to match the intended service; this project does not require
   a 30-day expiration. Organization lifetime policies still apply.
 - `BRIDGE_REPOSITORIES`: JSON policy, for example:

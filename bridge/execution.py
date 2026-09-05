@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from .core import BridgeError, MAX_RESULT, safe_path
+from .core import BridgeError, Execution, MAX_FILE, MAX_FILES, MAX_RESULT, MAX_TOTAL, safe_path
 
 
 def populate(root, files):
@@ -29,6 +29,38 @@ def invoke(root, program, request):
     return json.loads(encoded)
 
 
+def collect_changes(root, baseline):
+    import os
+    current, size, visited = {}, 0, 0
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        visited += 1
+        if visited > 256:
+            raise BridgeError("too_many_snapshot_directories", 413)
+        for name in dirs + names:
+            if (Path(directory) / name).is_symlink():
+                raise BridgeError("unsupported_repository_entry", 422)
+        for name in names:
+            path = Path(directory) / name
+            relative = path.relative_to(root).as_posix()
+            if relative == ".bridge-input.json":
+                continue
+            safe_path(relative)
+            if not path.is_file():
+                raise BridgeError("unsupported_repository_entry", 422)
+            if path.stat().st_size > MAX_FILE:
+                raise BridgeError("file_too_large", 413)
+            if len(current) >= MAX_FILES * 2:
+                raise BridgeError("too_many_snapshot_files", 413)
+            content = path.read_bytes()
+            size += len(content)
+            if len(content) > MAX_FILE or size > MAX_TOTAL * 2:
+                raise BridgeError("snapshot_too_large", 413)
+            current[relative] = content
+    changes = {path: content for path, content in current.items() if baseline.get(path) != content}
+    changes.update({path: None for path in baseline if path not in current})
+    return changes
+
+
 def execute_inline(files, program, request):
     # Cloudflare has no subprocess: synchronous invocation does not yield between
     # populating, executing and cleaning up this per-request temporary directory.
@@ -39,7 +71,8 @@ def execute_inline(files, program, request):
         import os
         try:
             with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                return invoke(root, program, request)
+                result = invoke(root, program, request)
+                return Execution(result, collect_changes(root, files))
         except BridgeError:
             raise
         except BaseException:
@@ -92,7 +125,11 @@ def execute_subprocess(files, program, request, timeout=10):
             envelope = json.loads(output)
             if not envelope["ok"]:
                 raise BridgeError(envelope["error"], 422)
-            return envelope["result"]
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return Execution(envelope["result"], collect_changes(root, files))
         finally:
             try:
                 os.killpg(process.pid, signal.SIGKILL)

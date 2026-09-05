@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import re
+from dataclasses import dataclass
 from urllib.parse import quote
 
 MAX_REQUEST = 64 * 1024
@@ -11,6 +12,12 @@ MAX_FILE = 512 * 1024
 MAX_TOTAL = 2 * 1024 * 1024
 MAX_FILES = 32
 MAX_RESULT = 512 * 1024
+
+
+@dataclass
+class Execution:
+    result: object
+    changes: dict
 
 
 class BridgeError(Exception):
@@ -48,6 +55,12 @@ class Settings:
                     raise BridgeError("server_not_configured", 503)
                 for prefix in prefixes:
                     safe_path(prefix)
+            for field in ("additional_refs", "write_refs", "write_prefixes"):
+                values = policy.get(field, [])
+                if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
+                    raise BridgeError("server_not_configured", 503)
+            for prefix in policy.get("write_prefixes", []):
+                safe_path(prefix)
         self.key, self.repositories, self.github_token = key, repositories, github_token
 
     @classmethod
@@ -71,14 +84,26 @@ def parse_request(raw, authorization, settings):
     except (ValueError, UnicodeError):
         raise BridgeError("invalid_json") from None
     fields = {"repository", "ref", "program", "files", "input"}
-    if not isinstance(request, dict) or set(request) != fields:
+    if not isinstance(request, dict) or set(request) not in (fields, fields | {"write"}):
         raise BridgeError("invalid_request")
     repo = request["repository"]
     if not isinstance(repo, str) or repo not in settings.repositories:
         raise BridgeError("repository_not_allowed", 403)
     policy = settings.repositories[repo]
-    if request["ref"] != policy["ref"]:
+    if request["ref"] not in [policy["ref"], *policy.get("additional_refs", [])]:
         raise BridgeError("ref_not_allowed", 403)
+    if "write" in request:
+        write = request["write"]
+        if (not isinstance(write, dict) or set(write) != {"message", "expected_commit"}
+                or not isinstance(write["message"], str) or not write["message"].strip()
+                or len(write["message"]) > 500
+                or not isinstance(write["expected_commit"], str)
+                or not re.fullmatch(r"[0-9a-f]{40}", write["expected_commit"])):
+            raise BridgeError("invalid_write_request")
+        if (request["ref"] not in policy.get("write_refs", [])
+                or not policy.get("write_prefixes")
+                or re.fullmatch(r"[0-9a-f]{40}", request["ref"])):
+            raise BridgeError("write_not_allowed", 403)
     program = safe_path(request["program"])
     if not program.endswith(".py") or not under(program, policy["program_prefixes"]):
         raise BridgeError("program_not_allowed", 403)
@@ -105,8 +130,32 @@ class GitHub:
     async def get(self, path):
         return await self.fetch_json("https://api.github.com" + path, self.headers)
 
+    async def tree(self, tree_sha):
+        if not isinstance(tree_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
+            raise BridgeError("invalid_upstream_response", 502)
+        if tree_sha not in self.trees:
+            listing = await self.get(f"/repos/{self.repo}/git/trees/{tree_sha}")
+            if listing.get("truncated") or not isinstance(listing.get("tree"), list):
+                raise BridgeError("invalid_upstream_response", 502)
+            self.trees[tree_sha] = {item["path"]: item for item in listing["tree"]}
+        return self.trees[tree_sha]
+
+    async def entry(self, path):
+        directory = self.root_tree
+        parts = safe_path(path).split("/")
+        for index, part in enumerate(parts):
+            entry = (await self.tree(directory)).get(part)
+            if entry is None:
+                return None
+            if index < len(parts) - 1:
+                if entry.get("type") != "tree" or entry.get("mode") != "040000":
+                    raise BridgeError("unsupported_repository_entry", 422)
+                directory = entry["sha"]
+        return entry
+
     async def snapshot(self, request):
         repo = request["repository"]
+        self.repo, self.trees = repo, {}
         ref = request["ref"]
         if re.fullmatch(r"[0-9a-f]{40}", ref):
             sha = ref
@@ -115,32 +164,16 @@ class GitHub:
             sha = branch.get("object", {}).get("sha", "")
         if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise BridgeError("invalid_upstream_response", 502)
+        if "write" in request and request["write"]["expected_commit"] != sha:
+            raise BridgeError("branch_conflict", 409)
         commit = await self.get(f"/repos/{repo}/git/commits/{sha}")
-        root_tree = commit.get("tree", {}).get("sha", "")
-        trees = {}
-
-        async def tree(tree_sha):
-            if not isinstance(tree_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
-                raise BridgeError("invalid_upstream_response", 502)
-            if tree_sha not in trees:
-                listing = await self.get(f"/repos/{repo}/git/trees/{tree_sha}")
-                if listing.get("truncated") or not isinstance(listing.get("tree"), list):
-                    raise BridgeError("invalid_upstream_response", 502)
-                trees[tree_sha] = {item["path"]: item for item in listing["tree"]}
-            return trees[tree_sha]
+        self.root_tree = commit.get("tree", {}).get("sha", "")
 
         files, total = {}, 0
         for path in dict.fromkeys([request["program"], *request["files"]]):
-            directory = root_tree
-            parts = path.split("/")
-            for index, part in enumerate(parts):
-                entry = (await tree(directory)).get(part)
-                if entry is None:
-                    raise BridgeError("repository_entry_not_found", 404)
-                if index < len(parts) - 1:
-                    if entry.get("type") != "tree" or entry.get("mode") != "040000":
-                        raise BridgeError("unsupported_repository_entry", 422)
-                    directory = entry["sha"]
+            entry = await self.entry(path)
+            if entry is None:
+                raise BridgeError("repository_entry_not_found", 404)
             if entry.get("type") != "blob" or entry.get("mode") not in ("100644", "100755"):
                 raise BridgeError("unsupported_repository_entry", 422)
             if not isinstance(entry.get("size"), int) or not 0 <= entry["size"] <= MAX_FILE:
@@ -163,19 +196,83 @@ class GitHub:
             files[path] = content
         return sha, files
 
+    async def commit_changes(self, request, base_sha, files, changes, policy, send_json):
+        if not changes:
+            return {"commit": base_sha, "changed": []}
+        if send_json is None:
+            raise BridgeError("write_transport_unavailable", 503)
+        if len(changes) > MAX_FILES:
+            raise BridgeError("too_many_changes", 413)
+        entries, total = [], 0
+        for path, content in sorted(changes.items()):
+            if not under(safe_path(path), policy["write_prefixes"]):
+                raise BridgeError("write_path_not_allowed", 403)
+            previous = await self.entry(path)
+            if previous and (previous.get("type") != "blob" or previous.get("mode") not in ("100644", "100755")):
+                raise BridgeError("unsupported_repository_entry", 422)
+            if previous and path not in files:
+                raise BridgeError("unread_file_conflict", 409)
+            if content is None:
+                if previous is None:
+                    raise BridgeError("invalid_delete", 422)
+                item = {"path": path, "mode": previous["mode"], "type": "blob", "sha": None}
+            else:
+                if not isinstance(content, bytes) or len(content) > MAX_FILE:
+                    raise BridgeError("file_too_large", 413)
+                total += len(content)
+                if total > MAX_TOTAL:
+                    raise BridgeError("changes_too_large", 413)
+                try:
+                    text = content.decode("utf-8")
+                except UnicodeError:
+                    raise BridgeError("write_requires_utf8", 422) from None
+                item = {"path": path, "mode": previous["mode"] if previous else "100644",
+                        "type": "blob", "content": text}
+            entries.append(item)
+        # All changes are checked before the first write request. The final ref
+        # update is fast-forward-only; a concurrent writer causes a conflict.
+        ref_path = f"/repos/{self.repo}/git/ref/heads/{quote(request['ref'], safe='/')}"
+        current = await self.get(ref_path)
+        if current.get("object", {}).get("sha") != base_sha:
+            raise BridgeError("branch_conflict", 409)
 
-async def handle(raw, authorization, settings, fetch_json, execute):
+        async def send(method, suffix, body):
+            return await send_json(method, f"https://api.github.com/repos/{self.repo}/git/{suffix}", self.headers, body)
+
+        tree = await send("POST", "trees", {"base_tree": self.root_tree, "tree": entries})
+        tree_sha = tree.get("sha", "")
+        if not isinstance(tree_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", tree_sha):
+            raise BridgeError("invalid_upstream_response", 502)
+        commit = await send("POST", "commits", {"message": request["write"]["message"],
+                           "parents": [base_sha], "tree": tree_sha})
+        commit_sha = commit.get("sha", "")
+        if not isinstance(commit_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+            raise BridgeError("invalid_upstream_response", 502)
+        updated = await send("PATCH", "refs/heads/" + quote(request["ref"], safe="/"),
+                             {"sha": commit_sha, "force": False})
+        if updated.get("object", {}).get("sha") != commit_sha:
+            raise BridgeError("invalid_upstream_response", 502)
+        return {"commit": commit_sha, "changed": sorted(changes)}
+
+
+async def handle(raw, authorization, settings, fetch_json, execute, send_json=None):
     try:
         request = parse_request(raw, authorization, settings)
-        sha, files = await GitHub(fetch_json, settings.github_token).snapshot(request)
-        result = execute(files, request["program"], request["input"])
+        github = GitHub(fetch_json, settings.github_token)
+        sha, files = await github.snapshot(request)
+        execution = execute(files, request["program"], request["input"])
+        result = execution.result
         encoded = json.dumps(result, ensure_ascii=False, allow_nan=False)
         if len(encoded.encode()) > MAX_RESULT:
             raise BridgeError("result_too_large", 413)
-        return 200, {"ok": True, "result": result, "source": {
+        response = {"ok": True, "result": result, "source": {
             "repository": request["repository"], "ref": request["ref"], "commit": sha,
             "program": request["program"],
             "sha256": hashlib.sha256(files[request["program"]]).hexdigest()}}
+        if "write" in request:
+            response["write"] = await github.commit_changes(request, sha, files, execution.changes,
+                                   settings.repositories[request["repository"]], send_json)
+        return 200, response
     except BridgeError as error:
         return error.status, {"ok": False, "error": {"code": error.code}}
     except Exception:
