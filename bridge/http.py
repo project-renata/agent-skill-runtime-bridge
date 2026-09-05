@@ -27,7 +27,7 @@ async def send_json(method, url, headers, body=None):
         except HTTPError as error:
             if method == "PATCH" and error.code in (409, 422):
                 raise BridgeError("branch_conflict", 409) from None
-            code = "repository_entry_not_found" if error.code == 404 else "github_request_failed"
+            code = {401: "github_unauthorized", 403: "github_forbidden", 404: "repository_entry_not_found"}.get(error.code, "github_request_failed")
             raise BridgeError(code, 502) from None
         except (URLError, ValueError, TimeoutError):
             raise BridgeError("github_request_failed", 502) from None

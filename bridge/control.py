@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
@@ -225,14 +226,52 @@ class ControlPlane:
         # GitHub caps PR files at 3000. Reject missing/truncated review data.
         if len(files) != before.get('changed_files') or len(files) >= 3000:
             raise BridgeError('pr_files_incomplete', 409)
-        checks = await self.pages(self.base(repo) + f'/commits/{sha}/check-runs', 'check_runs')
+        checks_error = None
+        try:
+            checks = await self.pages(self.base(repo) + f'/commits/{sha}/check-runs', 'check_runs')
+        except BridgeError as error:
+            if error.code != 'github_forbidden':
+                raise
+            checks, checks_error = [], 'github_forbidden'
         statuses = await self.pages(self.base(repo) + f'/commits/{sha}/statuses')
+        runs = await self.pages(self.base(repo) + f'/actions/runs?head_sha={sha}', 'workflow_runs')
+        rules = await self.github.get(self.base(repo) + '/rules/branches/' + quote(before['base']['ref'], safe=''))
+        if not isinstance(rules, list):
+            raise BridgeError('invalid_branch_rules', 502)
+        branch = await self.github.get(self.base(repo) + '/branches/' + quote(before['base']['ref'], safe=''))
+        if type(branch.get('protected')) is not bool:
+            raise BridgeError('invalid_branch_protection', 502)
+        required = []
+        if branch['protected']:
+            protection = branch.get('protection', {}).get('required_status_checks')
+            if not isinstance(protection, dict):
+                raise BridgeError('branch_check_requirements_unavailable', 409)
+            required.extend({'context': c} for c in protection.get('contexts', []))
+            required.extend({'context': c['context'], 'integration_id': c.get('app_id')} for c in protection.get('checks', []))
+        for rule in rules:
+            if rule.get('type') == 'required_status_checks':
+                required.extend(rule.get('parameters', {}).get('required_status_checks', []))
+        satisfied = True
+        for requirement in required:
+            name = requirement.get('context')
+            integration = requirement.get('integration_id')
+            check = next((c for c in checks if c.get('name') == name and c.get('head_sha') == sha
+                          and (integration is None or c.get('app', {}).get('id') == integration)), None)
+            status = next((s for s in statuses if s.get('context') == name), None)
+            passed = (check is not None and check.get('status') == 'completed'
+                      and check.get('conclusion') in {'success', 'neutral', 'skipped'})
+            # A status cannot prove an integration-specific check requirement.
+            passed = passed or (integration is None and status is not None and status.get('state') == 'success')
+            satisfied = satisfied and passed
+
         after = await self.pr(repo, number)
         if (after['head']['sha'] != sha or after['base']['sha'] != before['base']['sha']
                 or after['draft'] != before['draft'] or after['state'] != before['state']):
             raise BridgeError('pr_changed_during_read', 409)
         return {'pull_request': after, 'files': files, 'check_runs': checks,
-                'statuses': statuses, 'reviewed_commit_sha': sha,
+                'statuses': statuses, 'workflow_runs': runs, 'check_runs_error': checks_error,
+                'branch_rules': rules, 'required_checks': required, 'required_checks_satisfied': satisfied,
+                'reviewed_commit_sha': sha,
                 'patches_complete': all(isinstance(f.get('patch'), str) for f in files)}
 
     def ordinary(self, text):

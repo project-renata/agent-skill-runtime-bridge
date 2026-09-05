@@ -429,7 +429,11 @@ The authenticated MCP server optionally exposes nine additional tools:
 Issue reads include state; PR reads include body/head/base/draft/state. Review
 reads include complete changed-file lists, available patches, check runs and
 commit statuses, with a second head/base read to reject concurrent changes.
-Missing GitHub permissions or truncated data fail closed. Missing patches are
+Issue/PR permissions and truncated data fail closed. When GitHub refuses the
+Checks API for the server credential, review reports check_runs_error and still
+reads Actions runs and commit statuses at the exact SHA. It separately reads
+branch rulesets and classic protection check requirements; unknown requirements
+or an unproven required check cannot be treated as PASS. Missing patches are
 explicitly reported and require source inspection before deciding PASS.
 
 Configure `BRIDGE_GITHUB_CONTROL` as JSON, in addition to existing OAuth/Redis:
@@ -454,7 +458,7 @@ Every repository must also exist in `BRIDGE_REPOSITORIES`; its target branch
 must match the runtime policy ref. The numeric control identity must be in the
 existing OAuth user-ID allowlist. Every operation verifies that the server's
 GitHub token belongs to that exact numeric ID/login and that all involved repos
-are private. Supply Issues read/write and Pull requests/checks/commit statuses
+are private. Supply Issues read/write and Pull requests/Actions/commit statuses
 read permissions to the existing server credential for the allowlisted repos.
 Only the central runner needs contents/PR merge permissions for dispatch.
 Tokens remain in server transport; canonical Python retains its empty credential

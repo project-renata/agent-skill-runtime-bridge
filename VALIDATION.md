@@ -181,7 +181,7 @@ and expiry-driven OAuth refresh remain unverified.
 
 ## GitHub control plane, 0.5.0
 
-Full CPython/MCP suite: 99 tests PASS. Ruff `F,E9` checks on all bridge/api/tests
+Full CPython/MCP suite: 101 tests PASS. Ruff `F,E9` checks on all bridge/api/tests
 sources PASS; Python compile/import checks PASS. This includes existing OAuth
 numeric-ID denial, Redis OAuth persistence across app recreation, program_ref,
 historical/directory snapshots, canonical child credential separation and atomic
@@ -195,3 +195,5 @@ merge/close, and creation without any merge/ref API.
 The GitHub transport is simulated in these tests. They do not establish hosted
 permissions, refreshed ChatGPT schemas, runner event delivery or a zero-relay
 production loop; those are recorded separately after actual execution.
+
+Checks API forbidden is reported explicitly with alternative GitHub validation reads; network errors do not trigger this permission-specific path. Required checks with unavailable evidence remain unsatisfied.

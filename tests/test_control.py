@@ -66,6 +66,12 @@ class GitHub:
             return copy.deepcopy(self.prs[int(parts[2])])
         if rest.endswith('check-runs'):
             return {'check_runs': []}
+        if rest == '/actions/runs':
+            return {'workflow_runs': []}
+        if rest.startswith('/branches/'):
+            return {'protected': False}
+        if rest.startswith('/rules/branches/'):
+            return []
         if rest.endswith('statuses'):
             return []
         raise AssertionError(url)
@@ -400,3 +406,39 @@ class AdditionalBoundaries(unittest.IsolatedAsyncioTestCase):
             from bridge.execution import execute_subprocess
             result = execute_subprocess({'main.py':(root/'main.py').read_bytes()}, 'main.py', {})
             self.assertEqual(result.result, {'BRIDGE_GITHUB_TOKEN':None,'GH_TOKEN':None})
+
+
+class ChecksPermissionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_checks_forbidden_exposes_available_validation_and_rules(self):
+        t = ControlTests()
+        await t.asyncSetUp()
+        await t.ready()
+        fetch = t.fake.fetch
+        async def limited(url, headers):
+            if 'check-runs' in url: raise BridgeError('github_forbidden', 502)
+            return await fetch(url, headers)
+        t.control.github.fetch_json = limited
+        result = await t.control.pr_review(REPO, 3)
+        self.assertEqual(result['check_runs_error'], 'github_forbidden')
+        self.assertEqual(result['workflow_runs'], [])
+        self.assertTrue(result['required_checks_satisfied'])
+        self.assertEqual(result['required_checks'], [])
+        async def required(url, headers):
+            if '/rules/branches/' in url:
+                return [{'type':'required_status_checks','parameters':{'required_status_checks':[{'context':'build','integration_id':123}]}}]
+            return await limited(url, headers)
+        t.control.github.fetch_json = required
+        result = await t.control.pr_review(REPO, 3)
+        self.assertFalse(result['required_checks_satisfied'])
+
+    async def test_checks_network_failure_does_not_fall_back(self):
+        t = ControlTests()
+        await t.asyncSetUp()
+        await t.ready()
+        fetch = t.fake.fetch
+        async def broken(url, headers):
+            if 'check-runs' in url: raise BridgeError('github_request_failed', 502)
+            return await fetch(url, headers)
+        t.control.github.fetch_json = broken
+        with self.assertRaisesRegex(BridgeError, 'github_request_failed'):
+            await t.control.pr_review(REPO, 3)
