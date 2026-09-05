@@ -211,13 +211,16 @@ variables:
 | `BRIDGE_OAUTH_CLIENT_ID` | GitHub OAuth App client ID |
 | `BRIDGE_OAUTH_CLIENT_SECRET` | GitHub OAuth App client secret |
 | `BRIDGE_OAUTH_ALLOWED_USER_IDS` | JSON array of numeric user IDs as strings |
-| `BRIDGE_OAUTH_REDIS_URL` | Persistent Redis connection URL using `rediss://` |
+| `BRIDGE_OAUTH_REDIS_URL` | Persistent Redis connection URL using `rediss://`; optional when Vercel's native Upstash integration provides `REDIS_URL` |
 | `BRIDGE_OAUTH_SIGNING_KEY` | Stable random secret, at least 32 characters |
 | `BRIDGE_OAUTH_ENCRYPTION_KEY` | Stable Fernet key |
 
 Create the GitHub OAuth App with callback
 `https://YOUR-BRIDGE-HOST/auth/callback`. Use persistent shared Redis; in-memory
 or function-local file storage will lose registrations across deployments.
+The native `REDIS_URL` fallback always connects with TLS, including when its URL
+uses the generic `redis://` spelling. An explicit `BRIDGE_OAUTH_REDIS_URL` takes
+precedence and must use `rediss://`.
 Preserve both encryption and signing keys across deployments. OAuth access-token
 refresh is delegated to the provider/client; expiry or revocation of upstream
 credentials can still require reauthorization. This is not a guarantee of a

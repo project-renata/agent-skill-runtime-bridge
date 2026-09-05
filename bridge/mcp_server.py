@@ -81,10 +81,15 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
 
 def production_app(env=None):
     env = os.environ if env is None else env
+    redis_url = env.get('BRIDGE_OAUTH_REDIS_URL') or env.get('REDIS_URL', '')
+    # Vercel's native Upstash integration injects REDIS_URL. Always use TLS,
+    # including when the provider uses the generic redis:// URL spelling.
+    if not env.get('BRIDGE_OAUTH_REDIS_URL') and redis_url.startswith('redis://'):
+        redis_url = 'rediss://' + redis_url[len('redis://'):]
     required = ('BRIDGE_MCP_BASE_URL', 'BRIDGE_OAUTH_CLIENT_ID', 'BRIDGE_OAUTH_CLIENT_SECRET',
-                'BRIDGE_OAUTH_ALLOWED_USER_IDS', 'BRIDGE_OAUTH_REDIS_URL',
+                'BRIDGE_OAUTH_ALLOWED_USER_IDS',
                 'BRIDGE_OAUTH_SIGNING_KEY', 'BRIDGE_OAUTH_ENCRYPTION_KEY')
-    if not all(env.get(key) for key in required):
+    if not redis_url or not all(env.get(key) for key in required):
         async def unavailable(request):
             return JSONResponse({'error': 'mcp_oauth_not_configured'}, status_code=503,
                                 headers={'Cache-Control': 'no-store'})
@@ -93,7 +98,6 @@ def production_app(env=None):
     parsed = urlsplit(base)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
         raise ValueError('BRIDGE_MCP_BASE_URL must be an HTTPS origin')
-    redis_url = env['BRIDGE_OAUTH_REDIS_URL']
     if not redis_url.startswith('rediss://'):
         raise ValueError('OAuth Redis requires TLS')
     allowed = json.loads(env['BRIDGE_OAUTH_ALLOWED_USER_IDS'])

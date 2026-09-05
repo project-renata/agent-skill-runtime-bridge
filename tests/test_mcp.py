@@ -93,6 +93,23 @@ class MCPTests(unittest.TestCase):
 
 
 class OAuthWiringTests(unittest.TestCase):
+    def test_native_redis_configuration_uses_tls_and_explicit_override(self):
+        from cryptography.fernet import Fernet
+        from key_value.aio.stores.memory import MemoryStore
+        cfg=settings()
+        env={'BRIDGE_API_KEY':cfg.key,'BRIDGE_REPOSITORIES':json.dumps(cfg.repositories),
+             'BRIDGE_MCP_BASE_URL':'https://bridge.example',
+             'BRIDGE_OAUTH_CLIENT_ID':'test-client','BRIDGE_OAUTH_CLIENT_SECRET':'test-secret',
+             'BRIDGE_OAUTH_ALLOWED_USER_IDS':'["123"]','REDIS_URL':'redis://redis.example:6379',
+             'BRIDGE_OAUTH_SIGNING_KEY':'s'*40,'BRIDGE_OAUTH_ENCRYPTION_KEY':Fernet.generate_key().decode()}
+        with patch('bridge.mcp_server.RedisStore',return_value=MemoryStore()) as store:
+            production_app(env)
+            self.assertEqual(store.call_args.kwargs['url'],'rediss://redis.example:6379')
+            production_app({**env,'BRIDGE_OAUTH_REDIS_URL':'rediss://override.example'})
+            self.assertEqual(store.call_args.kwargs['url'],'rediss://override.example')
+            with self.assertRaisesRegex(ValueError,'requires TLS'):
+                production_app({**env,'BRIDGE_OAUTH_REDIS_URL':'redis://unsafe.example'})
+
     def test_discovery_auth_challenge_and_registration_survive_app_recreation(self):
         from cryptography.fernet import Fernet
         from key_value.aio.stores.memory import MemoryStore

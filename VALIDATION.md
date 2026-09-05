@@ -69,24 +69,33 @@ private repository and actual local Cloudflare workerd/Pyodide (public repositor
 Cloudflare cloud deployment and actual Worker write transport remain unverified.
 
 
-## v0.3 MCP preparation
+## v0.3 MCP and persistent OAuth configuration
 
-MCP/OAuth adapter commit `e59cd4e` is deployed to Vercel at
-`agent-skill-runtime-bridge-caxg1e4ab-jies-projects-5abe6c1c.vercel.app`.
-35 local tests pass (25 core/execution plus 10 MCP/OAuth adapter tests).
+The MCP/OAuth adapter with native Redis configuration is deployed to Vercel at
+`agent-skill-runtime-bridge-pckp9yk09-jies-projects-5abe6c1c.vercel.app`.
+36 local tests pass (25 core/execution plus 11 MCP/OAuth adapter tests).
 The ASGI tests cover initialization and metadata, authenticated reads and writes,
 read-tool schema separation, policy errors, write conflicts, missing credentials,
 strict Origin validation, owner-ID checks, OAuth discovery with S256, and client
-registration surviving app recreation using shared encrypted test storage.
+registration surviving app recreation using shared encrypted test storage,
+native Redis TLS enforcement and explicit configuration precedence.
 
-The storage-recreation test uses an in-memory shared backend; it does not verify
-a production Redis connection, real GitHub sign-in, or access-token refresh.
-Those require the deployment's OAuth App credentials and persistent Redis URL,
-which are not yet configured. Production `/mcp`, both discovery routes, and
-`/auth/callback` correctly return 503 `mcp_oauth_not_configured`. No anonymous
-fallback exists. The original private `/api/run` still passes all 6 HTTP cases
-after the deployment.
+On 2026-09-06, the OAuth App credentials and a native Upstash Redis integration
+were configured in Production. Redis uses the free plan with auto-upgrade,
+eviction and Prod Pack disabled. OAuth records use the existing stable encryption
+key; the provider-injected `REDIS_URL` connects over TLS.
+
+Live discovery returns 200, anonymous MCP calls return 401 with resource metadata,
+and DCR registration returns 201. A registration created on deployment
+`agent-skill-runtime-bridge-aq6cpjhdi-jies-projects-5abe6c1c.vercel.app` was accepted
+by `/authorize` after redeployment to the deployment above (302 to the consent
+page, then 200 HTML with `Cache-Control: no-store`). This verifies production
+registration persistence across deployments. It does not verify a real GitHub
+sign-in, token refresh, or a completed ChatGPT tool call. The original private
+`/api/run` still passes all 6 HTTP cases after the redeployment.
 
 A ChatGPT Projects user has selected this integration route. Developer mode and
 the OAuth-only/no-auth/mixed connection choices were confirmed in the account UI;
+the prepared form successfully discovers the server's OAuth endpoints and
+`read:user` scope, with DCR selected. Creation and access consent remain pending;
 actual app linking and tool invocation inside the project remain untested.
