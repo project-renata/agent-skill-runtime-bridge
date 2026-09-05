@@ -90,12 +90,36 @@ and DCR registration returns 201. A registration created on deployment
 `agent-skill-runtime-bridge-aq6cpjhdi-jies-projects-5abe6c1c.vercel.app` was accepted
 by `/authorize` after redeployment to the deployment above (302 to the consent
 page, then 200 HTML with `Cache-Control: no-store`). This verifies production
-registration persistence across deployments. It does not verify a real GitHub
-sign-in, token refresh, or a completed ChatGPT tool call. The original private
+registration persistence across deployments. The original private
 `/api/run` still passes all 6 HTTP cases after the redeployment.
 
 A ChatGPT Projects user has selected this integration route. Developer mode and
 the OAuth-only/no-auth/mixed connection choices were confirmed in the account UI;
-the prepared form successfully discovers the server's OAuth endpoints and
-`read:user` scope, with DCR selected. Creation and access consent remain pending;
-actual app linking and tool invocation inside the project remain untested.
+the form successfully discovers the server's OAuth endpoints and `read:user`
+scope, with DCR selected.
+
+## ChatGPT Projects live acceptance, 2026-09-06
+
+Real GitHub profile authorization completed. Refreshing the connected app exposed
+all three tools. A new conversation inside the intended ChatGPT Project invoked
+`list_runtime_targets` and `run_readonly_skill` against the private canonical
+program and two Markdown files. The raw tool response was successful; returned
+titles and line counts matched independent GitHub reads at the returned commit.
+
+The same conversation read the allowed validation branch head, created one
+dedicated acceptance file with `run_write_skill`, and read it back with the
+canonical program. A second guarded write deleted that test file. Independent
+GitHub API checks confirmed the exact created contents, each commit's single-file
+change, the cleanup branch head, and a final tree identical to the pre-test tree.
+Both ChatGPT write confirmations were inspected and allowed once; persistent
+permission defaults were not broadened.
+
+Finally, the unchanged runtime (`6e74710`) was redeployed to
+`agent-skill-runtime-bridge-58nlqq35u-jies-projects-5abe6c1c.vercel.app`.
+The existing ChatGPT connection successfully called the private read tool again
+without reconnecting or signing in. This verifies authenticated access across a
+real deployment, not expiry-driven token refresh (still untested).
+
+This was an instructed acceptance test, not unprompted tool selection. Formal
+Remember/Dream programs and production memory write scope remain unconnected;
+Cloudflare cloud deployment is still outstanding.
