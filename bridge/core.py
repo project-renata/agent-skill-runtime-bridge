@@ -61,6 +61,22 @@ class Settings:
                     raise BridgeError("server_not_configured", 503)
             for prefix in policy.get("write_prefixes", []):
                 safe_path(prefix)
+            authoring = policy.get("authoring")
+            if authoring is not None:
+                if (not isinstance(authoring, dict)
+                        or set(authoring) != {"ref", "program", "program_prefix", "data_prefix"}
+                        or authoring["ref"] not in [policy["ref"], *policy.get("additional_refs", [])]
+                        or authoring["ref"] not in policy.get("write_refs", [])):
+                    raise BridgeError("server_not_configured", 503)
+                writer = safe_path(authoring["program"])
+                programs = safe_path(authoring["program_prefix"])
+                data = safe_path(authoring["data_prefix"])
+                if (not writer.endswith(".py") or not under(writer, policy["program_prefixes"])
+                        or not under(programs, policy["program_prefixes"])
+                        or not under(programs, policy.get("write_prefixes", []))
+                        or not under(data, policy["data_prefixes"])
+                        or not under(data, policy.get("write_prefixes", []))):
+                    raise BridgeError("server_not_configured", 503)
         self.key, self.repositories, self.github_token = key, repositories, github_token
 
     @classmethod

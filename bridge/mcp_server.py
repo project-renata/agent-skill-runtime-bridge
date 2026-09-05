@@ -49,7 +49,16 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
         instructions='Call list_runtime_targets to inspect allowed repositories, refs and paths. '
         'Use run_readonly_skill to execute trusted canonical Python against an immutable snapshot. '
         'For writes, first read all existing target files and retain source.commit. '
-        'Pass that commit to run_write_skill. On branch_conflict, read again and reconcile before retrying.')
+        'Pass that commit to run_write_skill. On branch_conflict, read again and reconcile before retrying. '
+        'When a repository advertises authoring, you can create, edit and run Python in that workspace. '
+        'Use authoring.ref and authoring.program as the file helper: input={read:[paths]} returns loaded UTF-8 files; '
+        'input={changes:{path:content_or_null}} saves a batch through run_write_skill. '
+        'First call the helper read-only with files=[] and input={} to obtain the current source.commit; '
+        'load existing targets in files before editing. New programs go under authoring.program_prefix, '
+        'data under authoring.data_prefix. Write ordinary Python defining run(root,input) that returns JSON. '
+        'Then execute the saved program using run_readonly_skill, or run_write_skill to persist its output files. '
+        'Read back your source with the helper when revising it. Only operator-trusted Python is supported; '
+        'execution is not an untrusted-code sandbox.')
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
     def list_runtime_targets() -> dict:

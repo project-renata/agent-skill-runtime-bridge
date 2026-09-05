@@ -152,6 +152,47 @@ Use a host-side client that can keep the API key secret. An HTTP endpoint by its
 does not install an Action or MCP connector into an agent; configure and verify that
 integration separately. Do not put the bearer key in URLs or conversation prompts.
 
+## Author a program from a Web client
+
+An operator can opt a private, trusted authoring workspace into the same three
+MCP tools. Install `examples/workspace_files/main.py` in the target repository as
+an allowed canonical program. Give a dedicated branch write permission and make
+its program directory both executable and writable. Add this optional discovery
+metadata inside that repository's policy (it never grants permissions by itself):
+
+```json
+"authoring": {
+  "ref": "runtime-bridge/web-workspace",
+  "program": "bridge-bootstrap/workspace_files.py",
+  "program_prefix": "runtime-workspace/programs",
+  "data_prefix": "runtime-workspace/data"
+}
+```
+
+The branch must occur in the allowed refs and `write_refs`; the helper and program
+directory must be under `program_prefixes`; both workspace directories must be
+under `write_prefixes`, and the data directory under `data_prefixes`. Invalid
+authoring metadata fails configuration validation. This does not enable writes
+to the default branch unless that branch is explicitly configured for writes.
+
+1. Discover the authoring workspace with `list_runtime_targets`.
+2. Run the helper read-only with `files: []`, `input: {}` to get `source.commit`.
+   To inspect existing source, load its path in `files` and pass `input.read`.
+3. Have the Web model write ordinary Python with `run(root, input)` returning JSON.
+   Save it via the helper and `run_write_skill`, with `input.changes` mapping
+   the new `.py` path to source text and the preceding `write.expected_commit`.
+4. Run that new path with `run_readonly_skill`; pass all input files explicitly.
+   Use `run_write_skill` instead when the program should persist output files.
+5. To revise it, load the existing source with the helper, save the edit with a
+   fresh commit guard, and execute again. Null changes explicitly delete files.
+
+Program creation and changes require no Bridge rebuild. The helper supplies file
+contents, not directory discovery; callers explicitly name the files they need.
+The existing trusted-code execution boundary still applies to model-authored
+code. This feature does not provide a hostile-code sandbox or dynamic dependency
+installation. Programs can return their own structured validation diagnostics;
+uncaught runtime errors remain generic to avoid disclosing server details.
+
 ## Execution boundary
 
 This is **not an untrusted-code sandbox**. Only let trusted maintainers write to
