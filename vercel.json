@@ -1,4 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {"api/run.py": {"maxDuration": 60}}
+  "functions": {
+    "api/run.py": {
+      "maxDuration": 60
+    },
+    "api/mcp.py": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/run",
+      "destination": "/api/run"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/api/mcp"
+    }
+  ]
 }

@@ -183,3 +183,54 @@ Runtime references:
 - https://vercel.com/docs/functions/runtimes/python/api-directory
 - https://developers.cloudflare.com/workers/languages/python/
 - https://developers.cloudflare.com/workers/languages/python/stdlib/
+
+
+## ChatGPT Projects: authenticated MCP adapter
+
+The CPython adapter in `bridge/mcp_server.py` exposes `/mcp` with Streamable HTTP:
+`list_runtime_targets`, `run_readonly_skill`, and `run_write_skill`. The core and
+canonical programs remain independent of FastMCP. The existing `/api/run` endpoint
+continues to use its deployment API key. MCP uses a separate OAuth login.
+
+ChatGPT developer-mode connections support OAuth; they cannot send a custom API
+key. See [OpenAI authentication](https://developers.openai.com/plugins/build/auth)
+and [developer mode](https://developers.openai.com/api/docs/guides/developer-mode).
+
+This adapter uses FastMCP's GitHub OAuth provider, PKCE, encrypted persistent
+Redis storage, and a numeric GitHub-user allowlist. OAuth requests `read:user`
+only; repository permissions still come from the separately configured,
+repository-scoped `BRIDGE_GITHUB_TOKEN`. A different GitHub user's valid login
+is rejected. Read and write tools have separate schemas and annotations.
+
+Configure these production variables once, in addition to the original Bridge
+variables:
+
+| Variable | Value |
+| --- | --- |
+| `BRIDGE_MCP_BASE_URL` | Stable HTTPS origin, without a path |
+| `BRIDGE_OAUTH_CLIENT_ID` | GitHub OAuth App client ID |
+| `BRIDGE_OAUTH_CLIENT_SECRET` | GitHub OAuth App client secret |
+| `BRIDGE_OAUTH_ALLOWED_USER_IDS` | JSON array of numeric user IDs as strings |
+| `BRIDGE_OAUTH_REDIS_URL` | Persistent Redis connection URL using `rediss://` |
+| `BRIDGE_OAUTH_SIGNING_KEY` | Stable random secret, at least 32 characters |
+| `BRIDGE_OAUTH_ENCRYPTION_KEY` | Stable Fernet key |
+
+Create the GitHub OAuth App with callback
+`https://YOUR-BRIDGE-HOST/auth/callback`. Use persistent shared Redis; in-memory
+or function-local file storage will lose registrations across deployments.
+Preserve both encryption and signing keys across deployments. OAuth access-token
+refresh is delegated to the provider/client; expiry or revocation of upstream
+credentials can still require reauthorization. This is not a guarantee of a
+permanent login.
+
+Then redeploy and create a ChatGPT developer-mode app using
+`https://YOUR-BRIDGE-HOST/mcp` and OAuth. Complete GitHub sign-in, select the app
+in the target project conversation, and test a read followed by an explicitly
+authorized write on the validation branch. Verify the returned commit in GitHub
+before enabling production memory-writing paths. ChatGPT may ask for write
+confirmation in new conversations; that is separate from credential renewal.
+
+Until all OAuth variables are configured, the MCP/OAuth routes return 503
+`mcp_oauth_not_configured`; no anonymous execution fallback is provided.
+The MCP adapter currently targets Vercel/CPython. Cloudflare continues to serve
+the provider-neutral HTTP core; its MCP/OAuth adapter is not implemented.
