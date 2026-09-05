@@ -71,8 +71,13 @@ GET returns service metadata, not configuration or proof of private access.
 Configure these on the hosting provider, never commit them:
 
 - `BRIDGE_API_KEY`: random ASCII secret, at least 32 characters.
-- `BRIDGE_GITHUB_TOKEN`: fine-grained token restricted to the required repositories,
-  with **Contents: read-only** for this milestone. Omit for public-only repositories.
+- `BRIDGE_GITHUB_TOKEN`: fine-grained token restricted to the required repositories.
+  **Contents: read-only** suffices for the implemented probe. For a long-term memory
+  integration that will also save changes, provision **Contents: read and write**
+  on the single intended repository. The current code still has no write operation;
+  granting permission does not implement it. Omit the token for public-only repositories.
+  Select the lifetime to match the intended service; this project does not require
+  a 30-day expiration. Organization lifetime policies still apply.
 - `BRIDGE_REPOSITORIES`: JSON policy, for example:
 
 ```json

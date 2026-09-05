@@ -10,7 +10,7 @@ This records the read-only first milestone. The complete MVP is not yet accepted
 | Vercel HTTP conformance | `tests/http_conformance.py`: auth, path escape, repository/ref/program policy, canonical execution; 6 cases | PASS |
 | Cloudflare actual local Worker | Same HTTP suite under workerd/Pyodide, 6 cases, actual GitHub fetch and Python invocation | PASS |
 | Cloudflare cloud deployment | Account authentication outstanding | NOT TESTED |
-| Hosted private repository | Dedicated read-only GitHub credential outstanding | NOT TESTED |
+| Hosted private repository | Repository-scoped GitHub credential outstanding | NOT TESTED |
 | Web agent integration | Action/MCP/API-only entrypoint has not been selected | NOT TESTED |
 | GitHub writes and automatic dependency resolution | Outside the implemented first milestone | NOT IMPLEMENTED |
 
