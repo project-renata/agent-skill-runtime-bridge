@@ -67,3 +67,26 @@ an actual Web agent calling the service remain separate integration work.
 After the write changes, the same 6 read HTTP cases passed again on the Vercel
 private repository and actual local Cloudflare workerd/Pyodide (public repository).
 Cloudflare cloud deployment and actual Worker write transport remain unverified.
+
+
+## v0.3 MCP preparation
+
+MCP/OAuth adapter commit `e59cd4e` is deployed to Vercel at
+`agent-skill-runtime-bridge-caxg1e4ab-jies-projects-5abe6c1c.vercel.app`.
+35 local tests pass (25 core/execution plus 10 MCP/OAuth adapter tests).
+The ASGI tests cover initialization and metadata, authenticated reads and writes,
+read-tool schema separation, policy errors, write conflicts, missing credentials,
+strict Origin validation, owner-ID checks, OAuth discovery with S256, and client
+registration surviving app recreation using shared encrypted test storage.
+
+The storage-recreation test uses an in-memory shared backend; it does not verify
+a production Redis connection, real GitHub sign-in, or access-token refresh.
+Those require the deployment's OAuth App credentials and persistent Redis URL,
+which are not yet configured. Production `/mcp`, both discovery routes, and
+`/auth/callback` correctly return 503 `mcp_oauth_not_configured`. No anonymous
+fallback exists. The original private `/api/run` still passes all 6 HTTP cases
+after the deployment.
+
+A ChatGPT Projects user has selected this integration route. Developer mode and
+the OAuth-only/no-auth/mixed connection choices were confirmed in the account UI;
+actual app linking and tool invocation inside the project remain untested.
