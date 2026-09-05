@@ -424,6 +424,8 @@ class ChecksPermissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result['required_checks_satisfied'])
         self.assertEqual(result['required_checks'], [])
         async def required(url, headers):
+            if '/branches/' in url and '/rules/' not in url:
+                return {'protected': True, 'protection': {'required_status_checks': {'contexts': [], 'checks': []}}}
             if '/rules/branches/' in url:
                 return [{'type':'required_status_checks','parameters':{'required_status_checks':[{'context':'build','integration_id':123}]}}]
             return await limited(url, headers)
@@ -441,4 +443,32 @@ class ChecksPermissionTests(unittest.IsolatedAsyncioTestCase):
             return await fetch(url, headers)
         t.control.github.fetch_json = broken
         with self.assertRaisesRegex(BridgeError, 'github_request_failed'):
+            await t.control.pr_review(REPO, 3)
+
+    async def test_unprotected_branch_does_not_require_unavailable_rules_api(self):
+        t = ControlTests()
+        await t.asyncSetUp()
+        await t.ready()
+        fetch = t.fake.fetch
+        async def unprotected(url, headers):
+            if '/rules/branches/' in url:
+                self.fail('Explicitly unprotected branch must not query unavailable rules API')
+            return await fetch(url, headers)
+        t.control.github.fetch_json = unprotected
+        result = await t.control.pr_review(REPO, 3)
+        self.assertTrue(result['required_checks_satisfied'])
+
+    async def test_protected_branch_unavailable_rules_fails_closed(self):
+        t = ControlTests()
+        await t.asyncSetUp()
+        await t.ready()
+        fetch = t.fake.fetch
+        async def unavailable(url, headers):
+            if '/rules/branches/' in url:
+                raise BridgeError('github_forbidden', 502)
+            if '/branches/' in url:
+                return {'protected': True}
+            return await fetch(url, headers)
+        t.control.github.fetch_json = unavailable
+        with self.assertRaisesRegex(BridgeError, 'github_forbidden'):
             await t.control.pr_review(REPO, 3)

@@ -432,7 +432,8 @@ commit statuses, with a second head/base read to reject concurrent changes.
 Issue/PR permissions and truncated data fail closed. When GitHub refuses the
 Checks API for the server credential, review reports check_runs_error and still
 reads Actions runs and commit statuses at the exact SHA. It separately reads
-branch rulesets and classic protection check requirements; unknown requirements
+branch rulesets and classic protection check requirements for protected branches.
+An explicitly unprotected branch has no required checks; unknown protection or requirements
 or an unproven required check cannot be treated as PASS. Missing patches are
 explicitly reported and require source inspection before deciding PASS.
 

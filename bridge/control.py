@@ -235,14 +235,14 @@ class ControlPlane:
             checks, checks_error = [], 'github_forbidden'
         statuses = await self.pages(self.base(repo) + f'/commits/{sha}/statuses')
         runs = await self.pages(self.base(repo) + f'/actions/runs?head_sha={sha}', 'workflow_runs')
-        rules = await self.github.get(self.base(repo) + '/rules/branches/' + quote(before['base']['ref'], safe=''))
-        if not isinstance(rules, list):
-            raise BridgeError('invalid_branch_rules', 502)
         branch = await self.github.get(self.base(repo) + '/branches/' + quote(before['base']['ref'], safe=''))
         if type(branch.get('protected')) is not bool:
             raise BridgeError('invalid_branch_protection', 502)
-        required = []
+        required, rules = [], []
         if branch['protected']:
+            rules = await self.github.get(self.base(repo) + '/rules/branches/' + quote(before['base']['ref'], safe=''))
+            if not isinstance(rules, list):
+                raise BridgeError('invalid_branch_rules', 502)
             protection = branch.get('protection', {}).get('required_status_checks')
             if not isinstance(protection, dict):
                 raise BridgeError('branch_check_requirements_unavailable', 409)
