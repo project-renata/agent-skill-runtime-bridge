@@ -1,0 +1,10 @@
+.git
+.venv
+.venv-workers
+tests
+cloudflare
+node_modules
+.env*
+.dev.vars*
+.wrangler
+wrangler.jsonc

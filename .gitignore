@@ -1,0 +1,12 @@
+.vercel/
+.venv/
+.venv-workers/
+.env*
+.dev.vars*
+.wrangler/
+cloudflare/vendor/
+node_modules/
+__pycache__/
+*.py[cod]
+.DS_Store
+.vercel

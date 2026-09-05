@@ -1,0 +1,6 @@
+{
+  "name": "agent-skill-runtime-bridge",
+  "main": "cloudflare/worker.py",
+  "compatibility_date": "2026-09-05",
+  "compatibility_flags": ["python_workers"]
+}
