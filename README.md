@@ -51,7 +51,7 @@ Successful response:
 ```json
 {
   "ok": true,
-  "result": {"files": [{"path": "notes/today.md", "title": "Today"}], "count": 1},
+    "result": {"files": [{"path": "notes/today.md", "title": "Today", "line_count": 3}], "count": 1},
   "source": {
     "repository": "owner/private-skills",
     "ref": "main",
@@ -89,6 +89,15 @@ Vercel: `vercel link`, add the three environment variables for the intended depl
 environment, then `vercel --prod`. The Python function uses only the standard library.
 
 Cloudflare: `uv sync`, `uv run pywrangler dev` or `uv run pywrangler deploy`.
+The tested toolchain is Node 22, uv 0.12.10, workers-py 1.17.1, Wrangler 4.129.0.
+When system Node/uv differ, use an isolated tool invocation:
+
+```sh
+npm exec --yes --package=node@22 --package=wrangler@4.129.0 -- uv tool run --from 'uv==0.12.10' uv run pywrangler dev
+```
+
+Wrangler's build command stages only `worker.py` and the three portable core modules
+into `.cloudflare-build`. Generated packages and local environments stay outside it.
 Set secrets with `uv run pywrangler secret put VARIABLE_NAME`. Use `.dev.vars` for
 local tests only; it is ignored by Git and Vercel. The Worker uses the same core
 with Cloudflare's HTTP transport and an inline execution adapter.

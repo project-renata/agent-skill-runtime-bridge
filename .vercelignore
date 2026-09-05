@@ -3,6 +3,7 @@
 .venv-workers
 tests
 cloudflare
+worker.py
 node_modules
 .env*
 .dev.vars*
@@ -10,3 +11,4 @@ node_modules
 wrangler.jsonc
 python_modules
 pylock.toml
+.cloudflare-build

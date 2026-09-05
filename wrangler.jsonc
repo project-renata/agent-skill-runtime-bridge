@@ -1,6 +1,7 @@
 {
   "name": "agent-skill-runtime-bridge",
-  "main": "cloudflare/worker.py",
+  "main": ".cloudflare-build/worker.py",
+  "build": {"command": "python3 cloudflare/build.py"},
   "compatibility_date": "2026-09-05",
   "compatibility_flags": ["python_workers"]
 }

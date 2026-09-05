@@ -7,7 +7,7 @@ from bridge.execution import execute_inline
 
 
 async def fetch_json(url, headers):
-    response = await fetch(url, headers=headers, redirect="error")
+    response = await fetch(url, headers=headers, redirect="manual")
     if response.status != 200:
         raise BridgeError("github_request_failed", 502)
     raw = await response.text()
