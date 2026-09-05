@@ -1,6 +1,6 @@
 # Runtime validation — 2026-09-05
 
-This records the v0.2 read/write milestone. The complete MVP is not yet accepted.
+This records successive runtime milestones, including the live ChatGPT Python authoring loop on 2026-09-06. Cloudflare cloud acceptance remains outstanding.
 
 | Case | Evidence | Result |
 | --- | --- | --- |
@@ -60,8 +60,8 @@ Git tree, commit, and branch updates. Live checks passed:
 Each successful commit was independently checked for its parent, exact changed
 path set, and UTF-8 blob contents. Rejected calls left the branch unchanged.
 The validation branch retains its audit history; no test data was written to main.
-The deployed private policy currently permits writes only on that validation
-branch and only under its test-data prefix. Production memory-writing policy and
+At this milestone, the deployed private policy permitted writes only on that
+validation branch and only under its test-data prefix. Production memory-writing policy and
 an actual Web agent calling the service remain separate integration work.
 
 After the write changes, the same 6 read HTTP cases passed again on the Vercel
@@ -121,5 +121,60 @@ without reconnecting or signing in. This verifies authenticated access across a
 real deployment, not expiry-driven token refresh (still untested).
 
 This was an instructed acceptance test, not unprompted tool selection. Formal
-Remember/Dream programs and production memory write scope remain unconnected;
-Cloudflare cloud deployment is still outstanding.
+Remember/Dream program integration and production memory writes are deferred to
+a separate discussion at the user’s request. Cloudflare cloud deployment is still
+outstanding.
+
+
+## ChatGPT creates, saves, reads and executes Python, 2026-09-06
+
+The user clarified the acceptance criterion: Web must generate its own Python,
+save it through the Bridge, execute it, and modify and rerun it. Executing a
+preinstalled probe alone did not satisfy that criterion.
+
+Runtime `1789e02` adds optional, policy-validated authoring metadata and a small
+canonical file helper. The dedicated private branch is
+`runtime-bridge/web-workspace`; `runtime-workspace/programs` allows both writes
+and execution, with `runtime-workspace/data` for data. Main remains unwritable.
+Metadata describes existing permissions and cannot grant additional access.
+The 38-test full local suite passed, including actual CPython create/read/run/edit
+execution and rejection of inconsistent workspace permissions.
+
+The Web conversation received requirements and test inputs, not Python source.
+It generated `runtime-workspace/programs/web_stats.py`, saved it, and executed
+that exact source revision. Subsequent requests extended the same program:
+
+| Revision | Change and observed execution |
+| --- | --- |
+| `4f598437fcc7ac1c3ece4bf906871d55eedfca04` | Web-generated count, total and mean; `[3,7,11,19]` returned 4, 40 and 10 |
+| `e12b64207206bd3727d7e22cb3035a4a9556bc4a` | Added min/max; normal input returned 3/19, empty input returned null statistics |
+| `aa33bcf24dbff62895bcdeb298b5ee11e0ddaac1` | Read actual source text, added median, saved and executed; median 9 for normal input and null for empty input |
+
+The second iteration initially described loading a file as reading its source,
+but inspection of raw tool calls showed no returned source text. This was not
+accepted as source-read evidence. Runtime `0bf5ae1` additionally exposes the exact
+`input.read` contract and `result.files[path]` evidence requirement directly in
+`list_runtime_targets`. All 11 affected MCP tests passed. After deployment to
+`agent-skill-runtime-bridge-9u1aekfam-jies-projects-5abe6c1c.vercel.app`, the Web
+model rediscovered the contract and actually received the complete second
+revision's source before generating the third revision. That raw tool response
+was expanded and inspected. Missing initialization instructions in the model's
+context are a possible explanation for the earlier mistake, not a proven cause.
+
+Independent GitHub API reads confirmed each commit's sole changed path and exact
+source, and the final commit's parent. The final source SHA-256 is
+`1c35210b80fb4351fa3063e9c725edf827511858a462ac405b3a78b96edeb64a`.
+Both final executions used the third revision and returned:
+
+```json
+{"count":4,"total":40,"mean":10.0,"min":3,"max":19,"median":9.0}
+{"count":0,"total":0,"mean":null,"min":null,"max":null,"median":null}
+```
+
+This establishes the live Web create → save → execute → read source → modify →
+save → execute loop. It was instructed acceptance with an intermediate correction,
+not unprompted or universally reliable autonomous behavior. The reusable sample
+remains on the private workspace branch. Formal Skill program integration was
+not part of this acceptance. Execution is for operator-trusted Python, without a
+hostile-code sandbox or dynamic package installation. Cloudflare cloud execution
+and expiry-driven OAuth refresh remain unverified.
