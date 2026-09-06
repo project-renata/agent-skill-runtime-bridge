@@ -288,7 +288,7 @@ class SnapshotTests(unittest.TestCase):
             write_schema = next(t for t in listing if t["name"] == "run_write_skill")["inputSchema"]
             self.assertNotIn("program_ref", write_schema["properties"])
             targets = rpc(client, "tools/call", {"name": "list_runtime_targets", "arguments": {}}).json()["result"]["structuredContent"]
-            self.assertEqual(targets["runtime_version"], "0.5.0")
+            self.assertEqual(targets["runtime_version"], "0.6.0")
             limits = targets["snapshot_usage"]["limits"]
             self.assertEqual(limits["directory_files"], 32768)
             self.assertEqual(limits["directory_bytes"], 384 * 1024 * 1024)

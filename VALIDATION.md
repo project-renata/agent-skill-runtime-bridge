@@ -14,7 +14,7 @@ This records successive runtime milestones, including the live ChatGPT Python au
 | Hosted private writes | Dedicated validation branch; 8 live cases listed below, committed bytes independently checked through GitHub | PASS |
 | Web agent integration | Action/MCP/API-only entrypoint has not been selected | NOT TESTED |
 | Cloudflare actual local Worker writes | Inline adapter covered by core tests; actual Worker write transport not exercised | NOT TESTED |
-| Automatic dependency resolution | Explicit file hydration only | NOT IMPLEMENTED |
+| Declared canonical dependencies | Literal transitive code/support-file closure at code revision; dynamic package installation excluded | IMPLEMENTED (0.6) |
 
 The Vercel deployment remained
 `agent-skill-runtime-bridge-7c9yt7xkw-jies-projects-5abe6c1c.vercel.app`

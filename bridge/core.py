@@ -1,5 +1,6 @@
 """Protocol, authorization and immutable GitHub snapshot loading. No vendor SDK."""
 import asyncio
+import ast
 import base64
 import hashlib
 import hmac
@@ -24,6 +25,27 @@ MAX_TREE_ENTRIES = 65536
 MAX_TREE_RESPONSE = 32 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 BLOB_CONCURRENCY = 16
+
+
+def canonical_dependencies(content):
+    """Read a literal declaration without importing or executing repository code."""
+    try:
+        tree = ast.parse(content)
+    except (SyntaxError, ValueError):
+        raise BridgeError("execution_failed", 422) from None
+    declarations = [node.value for node in tree.body if isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "CANONICAL_DEPENDENCIES"
+                            for t in node.targets)]
+    if not declarations:
+        return []
+    try:
+        value = ast.literal_eval(declarations[0])
+    except (ValueError, TypeError):
+        raise BridgeError("invalid_dependency_declaration", 422) from None
+    if (len(declarations) != 1 or not isinstance(value, list) or len(value) > MAX_FILES
+            or any(not isinstance(p, str) for p in value) or len(set(value)) != len(value)):
+        raise BridgeError("invalid_dependency_declaration", 422)
+    return [safe_path(path) for path in value]
 
 
 @dataclass
@@ -418,8 +440,38 @@ class GitHub:
             for worker in workers:
                 worker.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
+
+        # A program owns its literal canonical dependencies. Resolve the whole
+        # code graph at the selected program commit, including when data is older.
+        # These are ordinary authorized blobs, subject to the same path/size/SHA
+        # checks; this is not package installation or arbitrary dynamic imports.
+        dependencies, visited, visiting = {}, set(), set()
+        async def hydrate(program):
+            if program in visiting:
+                raise BridgeError("dependency_cycle", 422)
+            if program in visited:
+                return
+            visiting.add(program)
+            if len(visiting) > MAX_FILES:
+                raise BridgeError("dependency_depth_exceeded", 413)
+            for dependency in canonical_dependencies(files[program]):
+                if (not readable(dependency, policy)
+                        or (dependency.endswith(".py") and not under(dependency, policy["program_prefixes"]))):
+                    raise BridgeError("dependency_not_allowed", 403)
+                if dependency not in dependencies and dependency != request["program"]:
+                    entry = await program_origin.entry(dependency)
+                    if entry is None:
+                        raise BridgeError("dependency_missing", 404)
+                    add(dependency, entry, program_origin)
+                    files[dependency] = await program_origin.blob(entry, content_limits[dependency])
+                    dependencies[dependency] = hashlib.sha256(files[dependency]).hexdigest()
+                if dependency.endswith(".py"):
+                    await hydrate(dependency)
+            visiting.remove(program)
+            visited.add(program)
+        await hydrate(request["program"])
         receipt = {"files": len(files), "bytes": sum(map(len, files.values())),
-                   "skipped_entries": len(skipped)}
+                   "skipped_entries": len(skipped), "canonical_dependencies": dependencies}
         if "program_ref" in request:
             receipt["program_commit"] = program_sha
         return sha, files, receipt
@@ -497,7 +549,8 @@ async def handle(raw, authorization, settings, fetch_json, execute, send_json=No
             "repository": request["repository"], "ref": request["ref"], "commit": sha,
             "program": request["program"],
             "sha256": hashlib.sha256(files[request["program"]]).hexdigest()}}
-        if any(file_selector(path)[1] for path in request["files"]) or "program_ref" in request:
+        if (any(file_selector(path)[1] for path in request["files"]) or "program_ref" in request
+                or snapshot.get("canonical_dependencies")):
             response["source"]["snapshot"] = snapshot
         if "program_ref" in request:
             response["source"]["program_commit"] = snapshot["program_commit"]

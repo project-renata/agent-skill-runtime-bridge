@@ -2,20 +2,25 @@
 
 Run an operator-trusted Python program directly from its GitHub canonical version.
 The same `run(repository_root, input) -> JSON-compatible value` function works locally,
-on Vercel CPython, and in the Cloudflare Python adapter. Programs contain no vendor metadata.
+on Vercel CPython, and in the Cloudflare Python adapter. Programs use ordinary Python and optional canonical dependency declarations.
 
 ## Status and scope
 
-Version 0.2 supports reads and opt-in atomic UTF-8 file commits. It retrieves one
-Python module plus explicitly requested files, fixes every file to one resolved
-commit, invokes `run`, and returns the result and source hashes. Programs write
+Version 0.6 supports reads, declared canonical dependencies, and opt-in atomic
+UTF-8 file commits. It resolves code and task data to immutable commits, invokes
+`run`, and returns the result and source hashes. Programs write
 ordinary temporary files; the Bridge validates and persists an authorized batch.
 Updating a program on the configured branch requires no Bridge deployment.
 
 The portable subset is standard-library Python without subprocesses, native packages,
-local sibling imports, or direct network dependencies. Dependency files can be passed
-in `files` and read with normal file I/O. Automatic import/dependency resolution
-is not implemented yet. Heavy computation belongs elsewhere.
+undeclared sibling imports, or direct network dependencies. Programs may declare
+a top-level literal list `CANONICAL_DEPENDENCIES = ["path/helper.py", "path/profile.json"]`.
+The runtime hydrates the transitive closure at the selected **code commit** before
+execution, including support files; callers supply only task data in `files`.
+Python dependencies require execution permission; support files require read
+permission. Unsafe paths, missing files, cycles, invalid declarations, corrupt
+blobs and existing size/count limits fail before execution. This does not install
+packages or resolve dynamic imports. Local runs use the same files in their checkout.
 
 ## Run a normal program locally
 
@@ -169,7 +174,7 @@ in the write policy.
 Optional readonly `program_ref` chooses the canonical program version in the
 same repository independently of the data snapshot. Use this when the program
 was introduced after the historical data commit. It follows the same ref
-validation and execution prefix policy. Only that program file is overlaid at
+validation and execution prefix policy. The program and its declared canonical dependency closure are overlaid at
 its canonical path; all other selected files come from `ref`.
 `source.program_commit` identifies the resolved code revision. Omitting the field
 keeps the original single-version behavior. Write requests reject `program_ref`.
@@ -211,7 +216,7 @@ truncated snapshots fail before execution with `too_many_snapshot_files`,
 
 The loader validates the entire manifest before downloading blobs. CPython can
 fetch a bounded archive for large selections in small repositories, verify every
-selected Git blob hash, and materialize only the requested files. Other loads use
+selected Git blob hash, and materialize the requested task files and declared canonical dependencies. Other loads use
 bounded concurrent blob fetches. Archives are streamed with both compressed and
 expanded size caps (512 MiB each, including tar overhead); extraction never writes filesystem paths. GitHub credentials
 are not forwarded to download redirects. Vercel requests allow up to 300 seconds
@@ -321,7 +326,7 @@ to the default branch unless that branch is explicitly configured for writes.
 3. Have the Web model write ordinary Python with `run(root, input)` returning JSON.
    Save it via the helper and `run_write_skill`, with `input.changes` mapping
    the new `.py` path to source text and the preceding `write.expected_commit`.
-4. Run that new path with `run_readonly_skill`; pass all input files explicitly.
+4. Run that new path with `run_readonly_skill`; pass task input files explicitly; declared dependencies are loaded automatically.
    Use `run_write_skill` instead when the program should persist output files.
 5. To revise it, load the existing source with the helper, save the edit with a
    fresh commit guard, and execute again. Null changes explicitly delete files.
