@@ -514,6 +514,14 @@ workflow editing, repository deletion or merge operation in this control plane.
 Ordinary issue tools reject reserved contract/evidence markers; dispatch labels
 are only applied by the high-level operations.
 
+`dispatch_local_agent` is the Web GPT → Local runner handoff for work Jie
+authorizes in Web. Local Codex handles local work directly and receives Web
+tasks; it must not invoke this Web-facing tool to redispatch work it can perform
+itself. Connector availability does not change the caller's role. Local tests
+and runner diagnostics do not establish Web entrypoint acceptance: that requires
+an actual dispatch from a fresh Web Session. Web reviews the resulting work and
+uses the existing acceptance flow.
+
 `dispatch_local_agent` takes a strict `request` object: `task_repository`,
 `target_repository`, short Traditional Chinese `title`, `task`, `allowed_paths`,
 `sources`, `validation_profile` (`documentation`, `python-tests`, or
