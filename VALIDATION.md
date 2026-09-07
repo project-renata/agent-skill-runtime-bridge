@@ -258,3 +258,30 @@ regressions. The canonical repository additionally exercises its actual lifecycl
 and quality programs through this Bridge parser and both Python executors.
 Hosted results will be recorded after production verification; these tests alone
 do not establish live Web success or that an oversized directory fits the limits.
+
+## MCP server icon, 2026-09-07
+
+Runtime commit `4ee43cebeadf31309b6c4d2d2e1fb0745884de42` advertises the
+selected 64x64 PNG in `initialize.result.serverInfo.icons`, using a data URI.
+The issue body's base64 was corrupted in two places. The original design patch
+provided the valid PNG; all PNG chunk CRCs and the IDAT zlib stream were verified.
+Its 5,129 bytes have SHA-256
+`ac9d084ccc4efea610eeb15d9a4d855379524ec53e1908798b769e767b134b00`.
+The initialization regression checks the server name, MIME type, dimensions,
+data URI, and exact image hash. All 11 MCP tests, 147 repository tests, and
+Ruff `F,E9` checks passed against the frozen lockfile (FastMCP 3.4.7).
+
+Vercel production deployment `dpl_4uMX73LaFQVDKyyBCy7kqVeTZzhc` is Ready at
+`agent-skill-runtime-bridge-b4d3hja3a-jies-projects-5abe6c1c.vercel.app`, aliased
+to the existing production hostname. Its OAuth consent page visibly renders the
+selected icon. Anonymous production initialization still returns 401.
+
+ChatGPT Refresh fetched updated tool metadata; reconnect completed through the
+existing OAuth flow, and a fresh conversation returned runtime version 0.6.2.
+However, the ChatGPT plugin settings page still displayed its default icon after
+Refresh, page reload, and reconnect. The authenticated production initialize
+response was not captured independently; local ASGI initialization is the direct
+protocol assertion. These observations establish deployment and working client
+connectivity, but **not** the requested ChatGPT action-icon display. Issue 62
+remains open for that client-side acceptance. Runtime permission policy was not
+changed by this patch.
