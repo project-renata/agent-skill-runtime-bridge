@@ -216,7 +216,7 @@ truncated snapshots fail before execution with `too_many_snapshot_files`,
 `source.snapshot` reports loaded file/byte counts and skipped entries.
 
 The loader validates the entire manifest before downloading blobs. CPython downloads
-a selected subtree with at least 128 files as one bounded GitHub tree archive.
+a selected subtree with at least eight files as one bounded GitHub tree archive.
 The tree SHA comes only from traversal of the resolved, allowed data commit;
 callers cannot supply an arbitrary archive object or URL. This avoids thousands
 of blob API requests when a small subtree lives inside a much larger repository.
@@ -237,6 +237,29 @@ permission denial remains `github_forbidden`. HTTP and MCP preserve the same
 classification. The runtime does not retry in a tight loop, rotate credentials,
 or execute a partial snapshot after throttling. Retry after GitHub's indicated
 window; a write still requires a fresh read and commit preconditions.
+
+CPython reuses immutable commit/tree/blob responses for 120 seconds in a
+credential- and repository-scoped cache bounded to 32 MiB and 1,024 entries.
+Concurrent readers of the same object share one request across event loops.
+Mutable branch refs, Issues, PRs and writes remain uncached. Canonical dependencies
+already loaded at the same code SHA are verified and reused without a second fetch.
+A process permits at most four upstream connections; after GitHub reports an
+exhausted quota, further requests fail promptly until the reported reset/retry
+window. These controls are process-local, not a distributed account-wide budget.
+
+Every source snapshot includes `read_diagnostics`, which counts loader-to-transport
+operations, including possible cache hits. Authenticated `list_runtime_targets`
+also returns `github_transport`: process-local upstream/cache/coalescing counters
+and the last observed numeric quota headers. Archive downloads count their API
+request and codeload connection separately there. Neither diagnostic exposes
+credentials or repository contents; neither claims to count all account activity.
+
+OAuth verification reuses successful results for at most 60 seconds (128 entries),
+while JWT expiry, session/JTI lookup, upstream expiry and the owner allowlist still
+apply. GitHub identity-provider throttling, upstream 5xx and network failures return
+`503` with `Retry-After` and no
+invalid-token challenge, preventing a quota outage from provoking a refresh loop.
+Actual invalid/expired credentials and unauthorized owners remain rejected.
 
 Directory selectors also work on allowed write branches. The expanded files form
 the baseline for the existing create/update/delete diff. `expected_commit`,

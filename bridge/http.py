@@ -1,10 +1,22 @@
 """CPython's GitHub transport. Credentials only reach api.github.com."""
 import asyncio
 import json
+from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
 from .core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_TREE_RESPONSE, github_http_error
+from .transport_cache import TransportState, credential_key, immutable_key, request_kind
+
+
+_transport = TransportState()
+
+
+def transport_status(headers_or_token):
+    """Safe observations for this process and the explicitly selected credential."""
+    headers = ({"Authorization": "Bearer " + headers_or_token} if isinstance(headers_or_token, str)
+               and headers_or_token else headers_or_token or {})
+    return _transport.status(credential_key(headers))
 
 
 class NoRedirects(HTTPRedirectHandler):
@@ -13,22 +25,39 @@ class NoRedirects(HTTPRedirectHandler):
 
 
 async def send_json(method, url, headers, body=None):
+    credential = credential_key(headers)
+    key = immutable_key(method, url, headers, body)
+    kind = request_kind(url)
+
     def fetch():
-        try:
-            data = json.dumps(body, ensure_ascii=False, allow_nan=False).encode() if body is not None else None
-            request_headers = {**headers, "Content-Type": "application/json"} if data is not None else headers
-            with build_opener(NoRedirects).open(Request(url, data=data, headers=request_headers, method=method), timeout=15) as response:
-                limit = (MAX_TREE_RESPONSE if "/git/trees/" in url else
-                         MAX_SNAPSHOT_FILE * 2 if "/git/blobs/" in url else MAX_FILE * 2)
-                raw = response.read(limit + 1)
-                if len(raw) > limit:
-                    raise BridgeError("upstream_response_too_large", 502)
-                return json.loads(raw)
-        except HTTPError as error:
-            raise github_http_error(error.code, error.headers, error.read(8192), method) from None
-        except (URLError, ValueError, TimeoutError):
-            raise BridgeError("github_request_failed", 502) from None
-    return await asyncio.to_thread(fetch)
+        with _transport.upstream(credential):
+            try:
+                data = json.dumps(body, ensure_ascii=False, allow_nan=False).encode() if body is not None else None
+                request_headers = {**headers, "Content-Type": "application/json"} if data is not None else headers
+                _transport.started(credential)
+                with build_opener(NoRedirects).open(Request(url, data=data, headers=request_headers, method=method), timeout=15) as response:
+                    _transport.observe(credential, kind, response.status, response.headers)
+                    limit = (MAX_TREE_RESPONSE if "/git/trees/" in url else
+                             MAX_SNAPSHOT_FILE * 2 if "/git/blobs/" in url else MAX_FILE * 2)
+                    raw = response.read(limit + 1)
+                    if len(raw) > limit:
+                        raise BridgeError("upstream_response_too_large", 502)
+                    # Invalid JSON is a failed request, and must never enter cache.
+                    parsed = json.loads(raw)
+                    if key is not None and (not isinstance(parsed, dict)
+                                            or parsed.get("sha") != urlsplit(url).path.rsplit("/", 1)[-1]):
+                        raise BridgeError("invalid_upstream_response", 502)
+                    return raw
+            except HTTPError as error:
+                classified = github_http_error(error.code, error.headers, error.read(8192), method)
+                _transport.observe(credential, kind, error.code, error.headers, classified)
+                raise classified from None
+            except (URLError, ValueError, TimeoutError):
+                raise BridgeError("github_request_failed", 502) from None
+
+    raw = await asyncio.to_thread(_transport.get_or_fetch, key, credential, fetch)
+    # Each caller owns a fresh decoded object; cached bytes cannot be mutated.
+    return json.loads(raw)
 
 
 async def fetch_json(url, headers):
@@ -92,26 +121,36 @@ async def fetch_archive(repository, commit, headers, entries):
     from urllib.parse import quote, urlsplit
 
     def download():
+        credential = credential_key(headers)
         url = "https://api.github.com/repos/" + quote(repository, safe="/") + "/tarball/" + commit
         opener = build_opener(NoRedirects())
-        try:
+        with _transport.upstream(credential):
             try:
-                response = opener.open(Request(url, headers=headers), timeout=30)
-            except HTTPError as redirect:
-                if redirect.code != 302:
-                    raise
-                target = redirect.headers.get("Location", "")
-                parts = urlsplit(target)
-                if (parts.scheme != "https" or parts.netloc != "codeload.github.com"
-                        or parts.username or parts.password):
-                    raise BridgeError("invalid_upstream_response", 502)
-                # The signed GitHub download URL supplies its own authorization.
-                # Do not forward the repository token to a redirect destination.
-                response = opener.open(Request(target, headers={"User-Agent": headers["User-Agent"]}), timeout=30)
-            with response:
-                return read_archive(response, entries)
-        except HTTPError as error:
-            raise github_http_error(error.code, error.headers, error.read(8192)) from None
-        except (URLError, TimeoutError):
-            raise BridgeError("github_request_failed", 502) from None
+                try:
+                    _transport.started(credential)
+                    response = opener.open(Request(url, headers=headers), timeout=30)
+                    _transport.observe(credential, "archive", response.status, response.headers)
+                except HTTPError as redirect:
+                    if redirect.code != 302:
+                        raise
+                    _transport.observe(credential, "archive", redirect.code, redirect.headers)
+                    target = redirect.headers.get("Location", "")
+                    redirect.close()
+                    parts = urlsplit(target)
+                    if (parts.scheme != "https" or parts.netloc != "codeload.github.com"
+                            or parts.username or parts.password):
+                        raise BridgeError("invalid_upstream_response", 502)
+                    # The signed download URL supplies its own authorization.
+                    # This continuation consumes no further GitHub API request.
+                    _transport.started(credential)
+                    response = opener.open(Request(target, headers={"User-Agent": headers["User-Agent"]}), timeout=30)
+                    _transport.observe(credential, "archive", response.status, response.headers)
+                with response:
+                    return read_archive(response, entries)
+            except HTTPError as error:
+                classified = github_http_error(error.code, error.headers, error.read(8192))
+                _transport.observe(credential, "archive", error.code, error.headers, classified)
+                raise classified from None
+            except (URLError, TimeoutError):
+                raise BridgeError("github_request_failed", 502) from None
     return await asyncio.to_thread(download)

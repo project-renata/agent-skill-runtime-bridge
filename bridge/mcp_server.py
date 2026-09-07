@@ -1,10 +1,13 @@
 """Optional CPython MCP adapter. Canonical programs and the core stay SDK-free."""
 import asyncio
+from contextvars import ContextVar
 import json
 import os
+import time
 from urllib.parse import urlsplit
 from typing import Annotated
 
+import httpx
 from cryptography.fernet import Fernet
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -16,12 +19,12 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from bridge.core import (BridgeError, Settings, handle, MAX_FILES, MAX_FILE, MAX_TOTAL,
+from bridge.core import (BridgeError, Settings, handle, github_http_error, MAX_FILES, MAX_FILE, MAX_TOTAL,
                          MAX_SNAPSHOT_FILES, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_DIRS,
                          MAX_SNAPSHOT_FILE, MAX_TREE_ENTRIES, MAX_TREE_RESPONSE, MAX_ARCHIVE_BYTES)
 from bridge.control import ControlPlane, ControlPolicy, RedisJournal, DispatchInput, AcceptInput
 from bridge.execution import execute_subprocess
-from bridge.http import fetch_json, send_json, fetch_archive
+from bridge.http import fetch_json, send_json, fetch_archive, transport_status
 
 
 class WriteIntent(BaseModel):
@@ -30,25 +33,80 @@ class WriteIntent(BaseModel):
     message: str = Field(min_length=1, max_length=500)
 
 
+_oauth_retry_after = ContextVar('oauth_retry_after', default=None)
+_oauth_upstream_expiry = ContextVar('oauth_upstream_expiry', default=None)
+
+
+class OAuthGitHubClient:
+    """Preserve temporary upstream failures that the SDK otherwise treats as invalid tokens.
+
+    Connections stay local to each call, so separate ASGI worker event loops
+    never share a live HTTP client. Successful verification is cached by the SDK.
+    """
+    async def get(self, url, **kwargs):
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url, **kwargs)
+        except httpx.TransportError:
+            _oauth_retry_after.set(60)
+            raise
+        if 500 <= response.status_code <= 599:
+            _oauth_retry_after.set(60)
+        elif response.status_code in (403, 429):
+            error = github_http_error(response.status_code, response.headers, response.content)
+            if error.code == 'github_rate_limited':
+                details = error.details
+                delay = details.get('retry_after')
+                if delay is None and 'reset_at' in details:
+                    delay = details['reset_at'] - int(time.time())
+                _oauth_retry_after.set(max(1, delay if delay is not None else 60))
+        return response
+
+
 class OwnerGitHubProvider(GitHubProvider):
     """A valid GitHub login alone never grants access to the deployment's repo."""
     def __init__(self, *, allowed_user_ids, **kwargs):
         self.allowed_user_ids = frozenset(allowed_user_ids)
         if not self.allowed_user_ids:
             raise ValueError('An explicit GitHub user allowlist is required')
+        # Only successful upstream verification is cached. JWT expiry, JTI
+        # lookup and the owner check below still run on every MCP request.
+        kwargs.setdefault('cache_ttl_seconds', 60)
+        kwargs.setdefault('max_cache_size', 128)
+        # A positive SDK threshold refreshes expiring upstream tokens even
+        # when a still-cached verification succeeds. Zero skips that refresh.
+        kwargs.setdefault('token_expiry_threshold_seconds', 1)
+        kwargs.setdefault('http_client', OAuthGitHubClient())
         super().__init__(**kwargs)
 
+    def _get_verification_token(self, upstream_token_set):
+        # OAuthProxy also calls this hook after a successful refresh, so the
+        # final deadline always belongs to the token actually being verified.
+        _oauth_upstream_expiry.set(upstream_token_set.expires_at)
+        return super()._get_verification_token(upstream_token_set)
+
     async def verify_token(self, token):
-        verified = await super().verify_token(token)
-        if verified and str(verified.claims.get('sub', '')) in self.allowed_user_ids:
-            return verified
-        return None
+        state = _oauth_upstream_expiry.set(None)
+        try:
+            verified = await super().verify_token(token)
+            expiry = _oauth_upstream_expiry.get()
+            if expiry is not None and expiry <= time.time():
+                return None
+            if verified and str(verified.claims.get('sub', '')) in self.allowed_user_ids:
+                if expiry is not None:
+                    verified = verified.model_copy(update={
+                        'expires_at': min(int(expiry), verified.expires_at)
+                        if verified.expires_at is not None else int(expiry)})
+                return verified
+            return None
+        finally:
+            _oauth_upstream_expiry.reset(state)
 
 
 def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None, control=None):
     if auth is None:
         raise ValueError('MCP authentication is required')
-    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.6.1', auth=auth,
+    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.6.2', auth=auth,
         mask_error_details=True, strict_input_validation=True,
         instructions='Call list_runtime_targets to inspect allowed repositories, refs and paths. '
         'Use run_readonly_skill to execute trusted canonical Python against an immutable snapshot. '
@@ -71,7 +129,8 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
-        result = {'runtime_version': '0.6.1', 'repositories': settings.repositories}
+        result = {'runtime_version': '0.6.2', 'repositories': settings.repositories,
+                  'github_transport': transport_status(settings.github_token)}
         if control:
             result['github_control'] = {'repositories': control.policy.repositories,
                 'central_repository': control.policy.central,
@@ -84,7 +143,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
             'history': 'On read_all repositories, readonly ref also accepts a full lowercase 40-character commit SHA fetched from that repository. Named refs retain their allowlist. source.commit is the resolved data commit; immutable commits are never write targets.',
             'program_ref': 'Optional readonly program_ref selects the canonical program version in the same repository when it is newer than the data snapshot. The program and its declared canonical dependency closure are loaded from program_ref; task data comes from ref. Omit for a single-version snapshot. source.program_commit records the resolved code commit. Writes reject program_ref.',
             'safety': 'Directory loads skip symlinks/submodules, reject unsafe paths and fail on truncated trees or limits. Explicit forbidden entries remain errors. No git metadata or Bridge input file is placed in root. Write commit, SHA preconditions and atomic semantics are unchanged.',
-            'transport': 'Large selected directories use bounded immutable subtree archives on CPython, with per-blob SHA verification. Full selectors must fit the limits; files are never silently omitted. github_rate_limited identifies exhausted GitHub quota and carries reset_at/retry_after when available; retry after that window.',
+            'transport': 'Selected directories of at least eight files use bounded immutable subtree archives on CPython, with per-blob SHA verification. Immutable Git objects are reused in a bounded process-local cache; branch refs remain fresh. github_transport exposes safe process-local observations, not account-wide totals. Full selectors must fit the limits; files are never silently omitted. github_rate_limited identifies exhausted GitHub quota and carries reset_at/retry_after when available; retry after that window.',
             'limits': {'selectors': MAX_FILES - 1, 'file_bytes': MAX_FILE,
                        'explicit_files': MAX_FILES, 'explicit_bytes': MAX_TOTAL,
                        'directory_files': MAX_SNAPSHOT_FILES, 'directory_bytes': MAX_SNAPSHOT_TOTAL,
@@ -249,8 +308,43 @@ def production_app(env=None):
     app = server.http_app(path='/mcp', stateless_http=True, json_response=True,
                           host_origin_protection=True, allowed_hosts=[parsed.netloc],
                           allowed_origins=['https://chatgpt.com', base])
+    app.add_middleware(OAuthAvailabilityMiddleware)
     app.add_middleware(NoStoreMiddleware)
     return app
+
+
+class OAuthAvailabilityMiddleware:
+    """An exhausted identity-provider quota is temporary unavailability, not revocation."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http':
+            return await self.app(scope, receive, send)
+        state = _oauth_retry_after.set(None)
+        replacement = None
+
+        async def report_unavailable(message):
+            nonlocal replacement
+            if message['type'] == 'http.response.start':
+                delay = _oauth_retry_after.get()
+                if message['status'] == 401 and delay is not None:
+                    # Emit no invalid-token challenge: that would cause clients
+                    # to refresh and immediately repeat the exhausted API call.
+                    replacement = JSONResponse(
+                        {'error': 'github_auth_temporarily_unavailable'}, status_code=503,
+                        headers={'Retry-After': str(delay), 'Cache-Control': 'no-store'})
+                    return
+            if replacement is not None:
+                if message['type'] == 'http.response.body' and not message.get('more_body', False):
+                    await replacement(scope, receive, send)
+                return
+            await send(message)
+
+        try:
+            await self.app(scope, receive, report_unavailable)
+        finally:
+            _oauth_retry_after.reset(state)
 
 
 class NoStoreMiddleware:

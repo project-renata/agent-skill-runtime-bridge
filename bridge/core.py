@@ -25,6 +25,9 @@ MAX_TREE_ENTRIES = 65536
 MAX_TREE_RESPONSE = 32 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 BLOB_CONCURRENCY = 16
+# A selected subtree already has a bounded, verified manifest. Avoid spending
+# one API request per small file once one archive is substantially cheaper.
+ARCHIVE_MIN_FILES = 8
 
 
 def canonical_dependencies(content):
@@ -264,12 +267,16 @@ class GitHub:
     def __init__(self, fetch_json, token, fetch_archive=None):
         self.fetch_json = fetch_json
         self.fetch_archive = fetch_archive
+        self.read_requests = {kind: 0 for kind in ("ref", "commit", "tree", "blob", "other")}
         self.headers = {"Accept": "application/vnd.github+json", "User-Agent": "agent-skill-runtime-bridge",
                         "X-GitHub-Api-Version": "2022-11-28"}
         if token:
             self.headers["Authorization"] = "Bearer " + token
 
     async def get(self, path):
+        kind = ("ref" if "/git/ref/" in path else "commit" if "/git/commits/" in path
+                else "tree" if "/git/trees/" in path else "blob" if "/git/blobs/" in path else "other")
+        self.read_requests[kind] += 1
         return await self.fetch_json("https://api.github.com" + path, self.headers)
 
     async def tree(self, tree_sha):
@@ -438,6 +445,7 @@ class GitHub:
         # Validate the full manifest and limits before downloading file contents.
         # Bounded workers avoid one task or connection per repository file.
         files = {}
+        archive_requests = 0
         data_entries = {path: entry for path, (entry, origin) in entries.items() if origin is self}
         if self.fetch_archive is not None:
             # Archive the selected immutable subtree, not the whole repository.
@@ -447,8 +455,9 @@ class GitHub:
                 prefix = directory + "/"
                 selected = {path[len(prefix):]: entry for path, entry in data_entries.items()
                             if path.startswith(prefix) and path not in files}
-                if len(selected) < 128:
+                if len(selected) < ARCHIVE_MIN_FILES:
                     continue
+                archive_requests += 1
                 archived = await self.fetch_archive(self.repo, self.directory_trees[directory],
                                                     self.headers, selected)
                 if set(archived) != set(selected):
@@ -473,7 +482,9 @@ class GitHub:
         # These are ordinary authorized blobs, subject to the same path/size/SHA
         # checks; this is not package installation or arbitrary dynamic imports.
         dependencies, visited, visiting = {}, set(), set()
+        reused_dependencies = 0
         async def hydrate(program):
+            nonlocal reused_dependencies
             if program in visiting:
                 raise BridgeError("dependency_cycle", 422)
             if program in visited:
@@ -489,16 +500,34 @@ class GitHub:
                     entry = await program_origin.entry(dependency)
                     if entry is None:
                         raise BridgeError("dependency_missing", 404)
+                    previous = entries.get(dependency)
+                    reuse = (dependency in files and previous is not None
+                             and previous[1] is program_origin
+                             and previous[0].get("sha") == entry.get("sha"))
                     add(dependency, entry, program_origin)
-                    files[dependency] = await program_origin.blob(entry, content_limits[dependency])
+                    if reuse:
+                        # Keep dependency-specific limits and SHA validation even
+                        # when a caller already selected this exact code object.
+                        files[dependency] = self.verify_blob(files[dependency], entry, content_limits[dependency])
+                        reused_dependencies += 1
+                    else:
+                        files[dependency] = await program_origin.blob(entry, content_limits[dependency])
                     dependencies[dependency] = hashlib.sha256(files[dependency]).hexdigest()
                 if dependency.endswith(".py"):
                     await hydrate(dependency)
             visiting.remove(program)
             visited.add(program)
         await hydrate(request["program"])
+        reads = dict(self.read_requests)
+        if program_origin is not self:
+            reads = {kind: count + program_origin.read_requests[kind] for kind, count in reads.items()}
         receipt = {"files": len(files), "bytes": sum(map(len, files.values())),
-                   "skipped_entries": len(skipped), "canonical_dependencies": dependencies}
+                   "skipped_entries": len(skipped), "canonical_dependencies": dependencies,
+                   # Transport calls may hit the hosting adapter's cache. These
+                   # counts describe loading work, not GitHub quota consumption.
+                   "read_diagnostics": {"transport_requests": sum(reads.values()) + archive_requests,
+                                        "json_requests": reads, "archive_requests": archive_requests,
+                                        "reused_dependencies": reused_dependencies}}
         if "program_ref" in request:
             receipt["program_commit"] = program_sha
         return sha, files, receipt
@@ -576,9 +605,8 @@ async def handle(raw, authorization, settings, fetch_json, execute, send_json=No
             "repository": request["repository"], "ref": request["ref"], "commit": sha,
             "program": request["program"],
             "sha256": hashlib.sha256(files[request["program"]]).hexdigest()}}
-        if (any(file_selector(path)[1] for path in request["files"]) or "program_ref" in request
-                or snapshot.get("canonical_dependencies")):
-            response["source"]["snapshot"] = snapshot
+        # Include the small load receipt for simple reads such as Pulse too.
+        response["source"]["snapshot"] = snapshot
         if "program_ref" in request:
             response["source"]["program_commit"] = snapshot["program_commit"]
         if "write" in request:
