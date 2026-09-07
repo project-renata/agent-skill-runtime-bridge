@@ -2,7 +2,7 @@
 import json
 from workers import WorkerEntrypoint, Response, fetch
 
-from bridge.core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_REQUEST, MAX_TREE_RESPONSE, Settings, handle
+from bridge.core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_REQUEST, MAX_TREE_RESPONSE, Settings, handle, github_http_error
 from bridge.execution import execute_inline
 
 
@@ -12,10 +12,10 @@ async def send_json(method, url, headers, body=None):
         options["body"] = json.dumps(body, ensure_ascii=False, allow_nan=False)
         options["headers"]["Content-Type"] = "application/json"
     response = await fetch(url, **options)
-    if method == "PATCH" and response.status in (409, 422):
-        raise BridgeError("branch_conflict", 409)
     if response.status not in (200, 201):
-        raise BridgeError("github_request_failed", 502)
+        raise github_http_error(response.status,
+            {name: response.headers.get(name) for name in ("X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After")
+             if response.headers.get(name) is not None}, method=method)
     raw = await response.text()
     if len(raw.encode()) > (MAX_TREE_RESPONSE if "/git/trees/" in url else
                            MAX_SNAPSHOT_FILE * 2 if "/git/blobs/" in url else MAX_FILE * 2):
@@ -45,7 +45,7 @@ class Default(WorkerEntrypoint):
             raw = (await request.text()).encode()
             status, body = await handle(raw, request.headers.get("Authorization", ""), settings, fetch_json, execute_inline, send_json)
         except BridgeError as error:
-            status, body = error.status, {"ok": False, "error": {"code": error.code}}
+            status, body = error.status, {"ok": False, "error": {"code": error.code, **error.details}}
         except Exception:
             status, body = 500, {"ok": False, "error": {"code": "execution_failed"}}
         return Response(json.dumps(body, ensure_ascii=False), status=status, headers=headers)

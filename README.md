@@ -6,7 +6,7 @@ on Vercel CPython, and in the Cloudflare Python adapter. Programs use ordinary P
 
 ## Status and scope
 
-Version 0.6 supports reads, declared canonical dependencies, and opt-in atomic
+Version 0.6.1 supports reads, declared canonical dependencies, and opt-in atomic
 UTF-8 file commits. It resolves code and task data to immutable commits, invokes
 `run`, and returns the result and source hashes. Programs write
 ordinary temporary files; the Bridge validates and persists an authorized batch.
@@ -204,9 +204,10 @@ snapshot limits. Directory-selected files permit 4 MiB each, with a snapshot cap
 of 32,768 files, 384 MiB total and 16,384 directories (31 selectors still apply).
 The program and explicit file selectors retain their 512 KiB cap, including in
 mixed requests. Recursive tree responses are bounded at 32 MiB and 65,536 entries.
-These bounded defaults allow more than twice the measured September 2026
-Story/Fable inventory: 15,455 files, 171.3 MiB, 6,292 directories, 1.68 MiB largest
-file. Unchanged large files are allowed during change collection without copying
+These are safety bounds, not a guarantee that every future repository subtree
+fits. The earlier 15,455-file / 171.3 MiB inventory fit; later data growth must be
+measured again. An oversized subtree fails in full, rather than silently omitting
+files or asking the caller to expand a directory into individual paths. Unchanged large files are allowed during change collection without copying
 the entire baseline into a second dictionary. New/changed files retain the
 512 KiB-per-file, 2 MiB-total write limits. Oversized or
 truncated snapshots fail before execution with `too_many_snapshot_files`,
@@ -214,13 +215,28 @@ truncated snapshots fail before execution with `too_many_snapshot_files`,
 `file_too_large`, `upstream_response_too_large` or `repository_tree_truncated`.
 `source.snapshot` reports loaded file/byte counts and skipped entries.
 
-The loader validates the entire manifest before downloading blobs. CPython can
-fetch a bounded archive for large selections in small repositories, verify every
-selected Git blob hash, and materialize the requested task files and declared canonical dependencies. Other loads use
-bounded concurrent blob fetches. Archives are streamed with both compressed and
-expanded size caps (512 MiB each, including tar overhead); extraction never writes filesystem paths. GitHub credentials
+The loader validates the entire manifest before downloading blobs. CPython downloads
+a selected subtree with at least 128 files as one bounded GitHub tree archive.
+The tree SHA comes only from traversal of the resolved, allowed data commit;
+callers cannot supply an arbitrary archive object or URL. This avoids thousands
+of blob API requests when a small subtree lives inside a much larger repository.
+Overlapping selectors download each selected file once. Small selections and
+transports without archive support retain bounded concurrent blob reads.
+
+Archives are streamed with both compressed and expanded size caps (512 MiB each,
+including tar overhead). Every selected regular file is matched to its manifest
+size and Git blob SHA; symlink, submodule, traversal, duplicate and missing-entry
+checks still apply. Extraction never writes filesystem paths. GitHub credentials
 are not forwarded to download redirects. Vercel requests allow up to 300 seconds
 for materialization; the Python execution timeout remains 10 seconds.
+
+Upstream 403 is not always an authorization failure. Exhausted primary quota,
+secondary rate limits and HTTP 429 return `github_rate_limited` (HTTP 429), with
+safe numeric `reset_at` / `retry_after` metadata when GitHub supplies it. Actual
+permission denial remains `github_forbidden`. HTTP and MCP preserve the same
+classification. The runtime does not retry in a tight loop, rotate credentials,
+or execute a partial snapshot after throttling. Retry after GitHub's indicated
+window; a write still requires a fresh read and commit preconditions.
 
 Directory selectors also work on allowed write branches. The expanded files form
 the baseline for the existing create/update/delete diff. `expected_commit`,

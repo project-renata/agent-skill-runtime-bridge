@@ -55,9 +55,32 @@ class Execution:
 
 
 class BridgeError(Exception):
-    def __init__(self, code, status=400):
-        self.code, self.status = code, status
+    def __init__(self, code, status=400, **details):
+        self.code, self.status, self.details = code, status, details
         super().__init__(code)
+
+
+def github_http_error(status, headers, body=b"", method="GET"):
+    """Classify upstream errors without exposing tokens, response bodies or URLs."""
+    if method == "PATCH" and status in (409, 422):
+        return BridgeError("branch_conflict", 409)
+    headers = {str(k).lower(): str(v) for k, v in headers.items()}
+    try:
+        message = json.loads(body[:8192]).get("message", "").lower()
+    except (ValueError, TypeError, AttributeError):
+        message = ""
+    if status == 429 or (status == 403 and (
+            headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers
+            or "rate limit" in message)):
+        details = {"upstream_status": status}
+        for header, field in (("x-ratelimit-reset", "reset_at"), ("retry-after", "retry_after")):
+            value = headers.get(header, "")
+            if value.isdigit() and len(value) <= 12:
+                details[field] = int(value)
+        return BridgeError("github_rate_limited", 429, **details)
+    code = {401: "github_unauthorized", 403: "github_forbidden",
+            404: "repository_entry_not_found"}.get(status, "github_request_failed")
+    return BridgeError(code, 502)
 
 
 def safe_path(value):
@@ -273,7 +296,7 @@ class GitHub:
         return entry
 
     async def resolve(self, repo, ref, expected_commit=None):
-        self.repo, self.trees = repo, {}
+        self.repo, self.trees, self.directory_trees = repo, {}, {}
         if immutable_ref(ref):
             sha = ref
         else:
@@ -310,6 +333,7 @@ class GitHub:
             raise BridgeError("invalid_upstream_response", 502)
         if len(entries) > MAX_TREE_ENTRIES:
             raise BridgeError("too_many_snapshot_entries", 413)
+        self.directory_trees[path] = tree_sha
         return entries
 
     async def blob(self, entry, limit=MAX_FILE):
@@ -415,20 +439,23 @@ class GitHub:
         # Bounded workers avoid one task or connection per repository file.
         files = {}
         data_entries = {path: entry for path, (entry, origin) in entries.items() if origin is self}
-        if self.fetch_archive is not None and len(data_entries) >= 128:
-            # Use one bounded archive only if the entire repository is small.
-            # A small requested subtree in a large repository still uses blobs.
-            tree = await self.get(f"/repos/{self.repo}/git/trees/{self.root_tree}?recursive=1")
-            manifest = tree.get("tree")
-            if (not tree.get("truncated") and isinstance(manifest, list)
-                    and len(manifest) <= MAX_TREE_ENTRIES
-                    and all(isinstance(e.get("size", 0), int) and e.get("size", 0) >= 0 for e in manifest)
-                    and sum(e.get("size", 0) for e in manifest) <= MAX_SNAPSHOT_TOTAL):
-                archived = await self.fetch_archive(self.repo, sha, self.headers, data_entries)
-                if set(archived) != set(data_entries):
+        if self.fetch_archive is not None:
+            # Archive the selected immutable subtree, not the whole repository.
+            # Tree IDs only come from traversal of the resolved allowed commit.
+            # This keeps small selections affordable even in a multi-GB repo.
+            for directory in sorted(self.directory_trees, key=lambda p: (p.count("/"), p)):
+                prefix = directory + "/"
+                selected = {path[len(prefix):]: entry for path, entry in data_entries.items()
+                            if path.startswith(prefix) and path not in files}
+                if len(selected) < 128:
+                    continue
+                archived = await self.fetch_archive(self.repo, self.directory_trees[directory],
+                                                    self.headers, selected)
+                if set(archived) != set(selected):
                     raise BridgeError("invalid_upstream_response", 502)
-                files.update({path: self.verify_blob(content, data_entries[path], content_limits[path])
-                              for path, content in archived.items()})
+                for relative, content in archived.items():
+                    path = prefix + relative
+                    files[path] = self.verify_blob(content, selected[relative], content_limits[path])
         pending = iter((path, item) for path, item in entries.items() if path not in files)
         async def download():
             for path, (entry, origin) in pending:
@@ -559,7 +586,7 @@ async def handle(raw, authorization, settings, fetch_json, execute, send_json=No
                                    settings.repositories[request["repository"]], send_json)
         return 200, response
     except BridgeError as error:
-        return error.status, {"ok": False, "error": {"code": error.code}}
+        return error.status, {"ok": False, "error": {"code": error.code, **error.details}}
     except Exception:
         # Never return exception text, source, credentials, or private program logs.
         return 500, {"ok": False, "error": {"code": "execution_failed"}}

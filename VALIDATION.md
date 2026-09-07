@@ -239,3 +239,22 @@ idempotency and mismatches are tested with simulated GitHub and shared Redis
 semantics, not live fault injection. Cross-repository production dispatch, live
 protected-branch checks, Cloudflare cloud execution and expiry-driven OAuth
 refresh remain outside this acceptance.
+
+
+## 0.6.1 subtree archives and lifecycle closure regression
+
+The prior large-snapshot path downloaded a whole-repository archive only when the
+root manifest fit the snapshot capacity. A large repository caused even a modest
+selected directory to fall back to one REST request per blob. Version 0.6.1
+archives the selected tree, already resolved from an allowed immutable commit,
+without inspecting or downloading unrelated root contents. Original safety and
+write limits remain unchanged. Upstream quota exhaustion is now distinguished
+from a genuine permission denial, with numeric retry/reset metadata only.
+
+Local full suite: 115 tests passed, including subtree archive hash verification,
+overlapping selectors, an unrelated truncated root, historical data with newer
+code, rate-limit classification, readonly execution and all atomic-write/security
+regressions. The canonical repository additionally exercises its actual lifecycle
+and quality programs through this Bridge parser and both Python executors.
+Hosted results will be recorded after production verification; these tests alone
+do not establish live Web success or that an oversized directory fits the limits.

@@ -48,7 +48,7 @@ class OwnerGitHubProvider(GitHubProvider):
 def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None, control=None):
     if auth is None:
         raise ValueError('MCP authentication is required')
-    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.6.0', auth=auth,
+    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.6.1', auth=auth,
         mask_error_details=True, strict_input_validation=True,
         instructions='Call list_runtime_targets to inspect allowed repositories, refs and paths. '
         'Use run_readonly_skill to execute trusted canonical Python against an immutable snapshot. '
@@ -71,7 +71,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
-        result = {'runtime_version': '0.6.0', 'repositories': settings.repositories}
+        result = {'runtime_version': '0.6.1', 'repositories': settings.repositories}
         if control:
             result['github_control'] = {'repositories': control.policy.repositories,
                 'central_repository': control.policy.central,
@@ -84,6 +84,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
             'history': 'On read_all repositories, readonly ref also accepts a full lowercase 40-character commit SHA fetched from that repository. Named refs retain their allowlist. source.commit is the resolved data commit; immutable commits are never write targets.',
             'program_ref': 'Optional readonly program_ref selects the canonical program version in the same repository when it is newer than the data snapshot. The program and its declared canonical dependency closure are loaded from program_ref; task data comes from ref. Omit for a single-version snapshot. source.program_commit records the resolved code commit. Writes reject program_ref.',
             'safety': 'Directory loads skip symlinks/submodules, reject unsafe paths and fail on truncated trees or limits. Explicit forbidden entries remain errors. No git metadata or Bridge input file is placed in root. Write commit, SHA preconditions and atomic semantics are unchanged.',
+            'transport': 'Large selected directories use bounded immutable subtree archives on CPython, with per-blob SHA verification. Full selectors must fit the limits; files are never silently omitted. github_rate_limited identifies exhausted GitHub quota and carries reset_at/retry_after when available; retry after that window.',
             'limits': {'selectors': MAX_FILES - 1, 'file_bytes': MAX_FILE,
                        'explicit_files': MAX_FILES, 'explicit_bytes': MAX_TOTAL,
                        'directory_files': MAX_SNAPSHOT_FILES, 'directory_bytes': MAX_SNAPSHOT_TOTAL,
@@ -123,7 +124,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
                 'Bearer ' + settings.key, settings, fetch, execute, send, archive))
         status, result = await asyncio.to_thread(invoke)
         if status != 200:
-            raise ToolError(result['error']['code'])
+            raise ToolError(json.dumps(result['error'], separators=(',', ':')))
         return result
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})

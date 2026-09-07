@@ -181,7 +181,7 @@ class SnapshotTests(unittest.TestCase):
         content = {PROGRAM: SCAN, **{f"docs/{i // 2}/x{i}.md": b"x" for i in range(count)}}
         fake = SnapshotGitHub(current=content)
         async def archive(repo, sha, headers, entries):
-            return {p: content[p] for p in entries}
+            return {p: content["docs/" + p] for p in entries}
         status, body = asyncio.run(handle(request(program=PROGRAM, files=["docs/"]),
             "Bearer " + KEY, config(), fake.fetch,
             lambda files, program, input: Execution({"count": len(files)}, {}), fake.send, archive))
@@ -288,7 +288,7 @@ class SnapshotTests(unittest.TestCase):
             write_schema = next(t for t in listing if t["name"] == "run_write_skill")["inputSchema"]
             self.assertNotIn("program_ref", write_schema["properties"])
             targets = rpc(client, "tools/call", {"name": "list_runtime_targets", "arguments": {}}).json()["result"]["structuredContent"]
-            self.assertEqual(targets["runtime_version"], "0.6.0")
+            self.assertEqual(targets["runtime_version"], "0.6.1")
             limits = targets["snapshot_usage"]["limits"]
             self.assertEqual(limits["directory_files"], 32768)
             self.assertEqual(limits["directory_bytes"], 384 * 1024 * 1024)
@@ -352,16 +352,51 @@ class ArchiveTests(unittest.TestCase):
             archives = []
             async def archive(repo, sha, headers, entries):
                 archives.append((repo, sha))
-                return {p: b"bad" if corrupt else content[p] for p in entries}
+                return {p: b"bad" if corrupt else content["docs/" + p] for p in entries}
             status, body = asyncio.run(handle(request(program=PROGRAM, files=["docs/"]),
                 "Bearer " + KEY, config(), fake.fetch, execute_subprocess, fake.send, archive))
-            self.assertEqual(archives, [("owner/private", HEAD)])
-            self.assertFalse(any("/git/blobs/" in c for c in fake.calls))
+            self.assertEqual(archives, [("owner/private", fake.docs_tree)])
+            self.assertEqual(sum("/git/blobs/" in c for c in fake.calls), 0 if corrupt else 1)
             if corrupt:
                 self.assertEqual((status, body["error"]["code"]), (502, "invalid_upstream_response"))
             else:
                 self.assertEqual(status, 200, body)
                 self.assertEqual(len(body["result"]["paths"]), 129)
+
+
+class SubtreeArchiveTests(unittest.TestCase):
+    def test_large_subtree_avoids_unrelated_huge_or_truncated_root(self):
+        content = {PROGRAM: SCAN, **{f"docs/nested/{i}.md": b"x" for i in range(140)}}
+        fake = SnapshotGitHub(current=content)
+        root_url = "/git/trees/" + fake.root_trees[HEAD] + "?recursive=1"
+        fake.responses[root_url] = {"tree": [], "truncated": True}
+        archives = []
+        async def archive(repo, sha, headers, entries):
+            archives.append(sha)
+            return {p: content["docs/" + p] for p in entries}
+        status, body = asyncio.run(handle(request(program=PROGRAM, files=["docs/", "docs/nested/"]),
+            "Bearer " + KEY, config(), fake.fetch, execute_subprocess, fake.send, archive))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(archives, [fake.docs_tree])
+        self.assertNotIn(root_url, fake.calls)
+        self.assertEqual(sum("/git/blobs/" in c for c in fake.calls), 1)
+        self.assertEqual(len(body["result"]["paths"]), 141)
+
+    def test_archive_tree_is_resolved_from_historical_data_not_program_ref(self):
+        current = {PROGRAM: SCAN, **{f"docs/{i}.md": b"new" for i in range(130)}}
+        old = {PROGRAM: SCAN, **{f"docs/{i}.md": b"old" for i in range(130)}}
+        fake = SnapshotGitHub(current=current, old=old)
+        old_tree = next(e["sha"] for e in fake.responses["/git/trees/" + fake.root_trees[OLD]]["tree"] if e["path"] == "docs")
+        async def archive(repo, sha, headers, entries):
+            self.assertEqual(sha, old_tree)
+            return {p: old["docs/" + p] for p in entries}
+        status, body = asyncio.run(handle(request(program=PROGRAM, ref=OLD, program_ref="main",
+            files=["docs/"], input={"read": "docs/1.md"}), "Bearer " + KEY, config(),
+            fake.fetch, execute_subprocess, fake.send, archive))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["result"]["text"], "old")
+        self.assertEqual(body["source"]["commit"], OLD)
+        self.assertEqual(body["source"]["program_commit"], HEAD)
 
 
 if __name__ == "__main__":

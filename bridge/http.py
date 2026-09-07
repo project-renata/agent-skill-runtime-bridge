@@ -4,7 +4,7 @@ import json
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
-from .core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_TREE_RESPONSE
+from .core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_TREE_RESPONSE, github_http_error
 
 
 class NoRedirects(HTTPRedirectHandler):
@@ -25,10 +25,7 @@ async def send_json(method, url, headers, body=None):
                     raise BridgeError("upstream_response_too_large", 502)
                 return json.loads(raw)
         except HTTPError as error:
-            if method == "PATCH" and error.code in (409, 422):
-                raise BridgeError("branch_conflict", 409) from None
-            code = {401: "github_unauthorized", 403: "github_forbidden", 404: "repository_entry_not_found"}.get(error.code, "github_request_failed")
-            raise BridgeError(code, 502) from None
+            raise github_http_error(error.code, error.headers, error.read(8192), method) from None
         except (URLError, ValueError, TimeoutError):
             raise BridgeError("github_request_failed", 502) from None
     return await asyncio.to_thread(fetch)
@@ -91,6 +88,7 @@ def read_archive(stream, entries):
 
 
 async def fetch_archive(repository, commit, headers, entries):
+    """Download a commit/tree object resolved by the core, with bounded extraction."""
     from urllib.parse import quote, urlsplit
 
     def download():
@@ -112,6 +110,8 @@ async def fetch_archive(repository, commit, headers, entries):
                 response = opener.open(Request(target, headers={"User-Agent": headers["User-Agent"]}), timeout=30)
             with response:
                 return read_archive(response, entries)
-        except (HTTPError, URLError, TimeoutError):
+        except HTTPError as error:
+            raise github_http_error(error.code, error.headers, error.read(8192)) from None
+        except (URLError, TimeoutError):
             raise BridgeError("github_request_failed", 502) from None
     return await asyncio.to_thread(download)

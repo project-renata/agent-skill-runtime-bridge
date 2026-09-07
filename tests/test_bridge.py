@@ -12,7 +12,7 @@ from bridge.execution import execute_inline, execute_subprocess
 
 KEY = "test-key-" + "x" * 32
 SHA = "a" * 40
-PROBE = Path("examples/markdown_titles/main.py").read_bytes()
+PROBE = (Path(__file__).resolve().parents[1] / "examples/markdown_titles/main.py").read_bytes()
 
 
 def settings():
