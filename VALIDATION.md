@@ -282,8 +282,9 @@ However, the ChatGPT plugin settings page still displayed its default icon after
 Refresh, page reload, and reconnect. The authenticated production initialize
 response was not captured independently; local ASGI initialization is the direct
 protocol assertion. These observations establish deployment and working client
-connectivity, but **not** the requested ChatGPT action-icon display. Issue 62
-remains open for that client-side acceptance. Runtime permission policy was not
+connectivity, but **not** the requested ChatGPT action-icon display. At this stage, Issue 62
+remained open for client-side acceptance; the later workaround below completes
+the visible-icon and client-call checks. Runtime permission policy was not
 changed by this patch.
 
 ### ChatGPT display metadata diagnosis
@@ -311,3 +312,36 @@ The exact verified PNG is also checked in at `assets/bridge-icon.png` and shown
 at the top of the GitHub README. A repository README image, its owner's avatar,
 MCP initialization metadata, and ChatGPT plugin display metadata are separate
 surfaces; updating one does not establish that the others changed.
+
+### Working ChatGPT icon workaround
+
+The missing editor did not mean custom icons were unsupported. On the same Pro
+account, Plugins → Create app opened a New Plugin form with an optional PNG
+upload (10 KB maximum; 256x256 recommended, not required). Uploading the existing
+5,129-byte 64x64 `assets/bridge-icon.png` during creation succeeded. The new
+connection uses the same production MCP URL and OAuth service. After OAuth and
+Refresh, its settings and plugin detail page visibly show the selected blue-purple
+icon, and its tool list includes the existing Bridge tools.
+
+The connection is named `Agent Skill Runtime Bridge · 新圖示`, ID
+`asdk_app_6a9e7b4a651c8191b5fb8bd836a26ba4`. The older connection is retained so
+existing conversations and bindings are not disrupted. This is a newly created
+connection with an uploaded presentation icon, not an in-place fix to the old
+connection's null logo fields. Its action approvals retain ChatGPT's default.
+
+The useful external lead was [FavStash's own ChatGPT setup guide](https://www.favstash.app/docs/ai-connect?agent=chatgpt),
+which reports inconsistent MCP-icon import and recommends uploading a PNG when
+the form exposes that field. [B2 Portal's setup guide](https://b2portal.com/docs/mcp/chatgpt)
+also describes uploading the icon during creation. These are vendor observations;
+the successful upload and rendered plugin page above were independently verified
+in this account. No HTTPS-icon code experiment or runtime redeployment was needed
+for this workaround. MCP metadata remains the original tested data URI.
+
+A fresh ChatGPT Work conversation using the new connection called
+`list_runtime_targets` once and returned `0.6.2`. Expanding its work details
+visibly showed the selected icon beside the actual runtime-target tool call.
+This completes the requested ChatGPT action-icon acceptance, with the explicit
+limitation that it applies to the new connection, not old bindings. The independent
+raw authenticated production initialize capture remains unavailable; the real
+client's successful OAuth, tool discovery and invocation are the production
+integration evidence.
