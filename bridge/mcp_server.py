@@ -14,6 +14,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.auth.providers.github import GitHubProvider
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+from mcp.types import Icon
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -25,6 +26,85 @@ from bridge.core import (BridgeError, Settings, handle, github_http_error, MAX_F
 from bridge.control import ControlPlane, ControlPolicy, RedisJournal, DispatchInput, AcceptInput
 from bridge.execution import execute_subprocess
 from bridge.http import fetch_json, send_json, fetch_archive, transport_status
+
+
+# Selected 64x64 PNG, embedded so clients do not need an external image host.
+_SERVER_ICON = Icon(
+    src=(
+        'data:image/png;base64,'
+        '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'
+        'X/BBvQiO938B6sHF4sAAZlgAAAAASUVORK5CYII='
+    ),
+    mimeType='image/png',
+    sizes=['64x64'],
+)
 
 
 class WriteIntent(BaseModel):
@@ -107,6 +187,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     if auth is None:
         raise ValueError('MCP authentication is required')
     mcp = FastMCP('Agent Skill Runtime Bridge', version='0.6.2', auth=auth,
+        icons=[_SERVER_ICON],
         mask_error_details=True, strict_input_validation=True,
         instructions='Call list_runtime_targets to inspect allowed repositories, refs and paths. '
         'Use run_readonly_skill to execute trusted canonical Python against an immutable snapshot. '

@@ -1,4 +1,7 @@
+import base64
+import hashlib
 import json
+import struct
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -41,6 +44,19 @@ class MCPTests(unittest.TestCase):
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(r.headers['Cache-Control'],'no-store')
             self.assertIn('instructions',r.json()['result'])
+            server_info = r.json()['result']['serverInfo']
+            self.assertEqual(server_info['name'], 'Agent Skill Runtime Bridge')
+            self.assertEqual(len(server_info['icons']), 1)
+            icon = server_info['icons'][0]
+            self.assertEqual(icon['mimeType'], 'image/png')
+            self.assertEqual(icon['sizes'], ['64x64'])
+            self.assertTrue(icon['src'].startswith('data:image/png;base64,'))
+            png = base64.b64decode(icon['src'].split(',', 1)[1], validate=True)
+            self.assertEqual(png[:8], b'\x89PNG\r\n\x1a\n')
+            self.assertEqual(struct.unpack('>II', png[16:24]), (64, 64))
+            # Pin the verified source PNG, including its compressed pixels and CRCs.
+            self.assertEqual(hashlib.sha256(png).hexdigest(),
+                             'ac9d084ccc4efea610eeb15d9a4d855379524ec53e1908798b769e767b134b00')
             tools=rpc(client,'tools/list').json()['result']['tools']
             self.assertEqual(len(tools),3)
             self.assertEqual({t['name']:t['annotations']['readOnlyHint'] for t in tools},
