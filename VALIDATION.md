@@ -285,3 +285,29 @@ protocol assertion. These observations establish deployment and working client
 connectivity, but **not** the requested ChatGPT action-icon display. Issue 62
 remains open for that client-side acceptance. Runtime permission policy was not
 changed by this patch.
+
+### ChatGPT display metadata diagnosis
+
+A subsequent inspection of the real ChatGPT plugin-detail network response found
+all four display fields empty in `release.interface`: `logo_url`, `logo_url_dark`,
+`composer_icon_url`, and `composer_icon_dark_url` were `null`. This is direct
+evidence that this connection's plugin presentation metadata was not populated
+by the MCP icon deployment and Refresh/reconnect. It is not evidence of a broken
+PNG, nor proof that every ChatGPT client ignores MCP icons.
+
+The current account's Manage menu exposes editing the name and description,
+reconnect, disconnect, and delete, but no logo editor; the name dialog contains
+only a name field. Clicking the logo itself opens no editor. OpenAI's
+[developer-mode help](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt)
+describes separate app-logo management, while the
+[plugin manifest documentation](https://developers.openai.com/plugins/build/plugins)
+assigns visual presentation to `interface.logo` and `interface.composerIcon`.
+The missing logo-editing control in this account has not been explained by those
+documents. The remaining work belongs to ChatGPT's app/plugin presentation
+configuration; changing runtime permissions or repeatedly redeploying the same
+MCP icon does not address the observed empty fields.
+
+The exact verified PNG is also checked in at `assets/bridge-icon.png` and shown
+at the top of the GitHub README. A repository README image, its owner's avatar,
+MCP initialization metadata, and ChatGPT plugin display metadata are separate
+surfaces; updating one does not establish that the others changed.

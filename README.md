@@ -1,3 +1,5 @@
+<p><img src="assets/bridge-icon.png" alt="Agent Skill Runtime Bridge icon" width="64" height="64"></p>
+
 # Agent Skill Runtime Bridge
 
 Run an operator-trusted Python program directly from its GitHub canonical version.
