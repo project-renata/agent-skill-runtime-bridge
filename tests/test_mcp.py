@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+from pathlib import Path
 import struct
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -54,9 +55,12 @@ class MCPTests(unittest.TestCase):
             png = base64.b64decode(icon['src'].split(',', 1)[1], validate=True)
             self.assertEqual(png[:8], b'\x89PNG\r\n\x1a\n')
             self.assertEqual(struct.unpack('>II', png[16:24]), (64, 64))
-            # Pin the verified source PNG, including its compressed pixels and CRCs.
+            self.assertEqual(png[25], 6)  # PNG RGBA; never bake an opaque white backplate.
+            self.assertLessEqual(len(png), 10_000)  # ChatGPT creation upload limit.
+            self.assertEqual(png, (Path(__file__).parents[1] / 'assets/bridge-icon.png').read_bytes())
+            # Pin the selected circular export, including its compressed pixels and CRCs.
             self.assertEqual(hashlib.sha256(png).hexdigest(),
-                             'ac9d084ccc4efea610eeb15d9a4d855379524ec53e1908798b769e767b134b00')
+                             'a3d104c021b78db2c5c271fcfaf2d10772fc7c1fedc6483d4a55f6f04fed8ac5')
             tools=rpc(client,'tools/list').json()['result']['tools']
             self.assertEqual(len(tools),3)
             self.assertEqual({t['name']:t['annotations']['readOnlyHint'] for t in tools},
