@@ -224,6 +224,12 @@ class GoogleCatalog:
             self.validate_value(call['body'], method['request'], service)
         elif method.get('request'):
             call['body'] = {}
+        if call['operation'] in ('tasks.tasklists.update', 'tasks.tasks.update'):
+            target = params['tasklist' if call['operation'] == 'tasks.tasklists.update' else 'task']
+            if call['body'].get('id', target) != target:
+                raise BridgeError('google_body_target_mismatch', 400)
+            # Unlike PATCH, Tasks PUT requires its resource ID in the body too.
+            call['body']['id'] = target
         if 'media' in call:
             media = call['media']
             if not method.get('mediaUpload') or not isinstance(media, dict) or set(media) != {'mime_type', 'data_base64'}:

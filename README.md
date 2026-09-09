@@ -609,7 +609,7 @@ Confirm discovery, an authenticated search and a body read. Server deployment
 alone does not prove the Web client has imported the new schemas.
 
 
-## Full Google Services (0.8.0)
+## Full Google Services (0.8.1)
 
 The existing authenticated MCP now exposes Gmail, Calendar, Tasks, Drive, Docs,
 Sheets and Slides through one account-bound transport. The original four Gmail
@@ -688,3 +688,5 @@ uv run python scripts/check_google_services_live.py --account YOUR_EMAIL --execu
 ```
 
 The scratch check does not send mail, share files or invite attendees.
+
+Tasks full PUT updates materialize the path resource ID into the prepared body; mismatched IDs are rejected. Prefer PATCH for partial task edits to preserve omitted fields.

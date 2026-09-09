@@ -172,6 +172,14 @@ class GoogleServicesTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(BridgeError):
                 self.google.catalog.normalize({**valid, 'body': body}, Mail.account)
 
+    async def test_tasks_put_binds_body_id_to_path(self):
+        for operation, params, expected in [('tasks.tasklists.update', {'tasklist': 'list'}, 'list'),
+                                             ('tasks.tasks.update', {'tasklist': 'list', 'task': 'task'}, 'task')]:
+            call = self.google.catalog.normalize({'operation': operation, 'params': params, 'body': {'title': 'renamed'}}, Mail.account)
+            self.assertEqual(call['body']['id'], expected)
+            with self.assertRaisesRegex(BridgeError, 'google_body_target_mismatch'):
+                self.google.catalog.normalize({'operation': operation, 'params': params, 'body': {'id': 'other', 'title': 'renamed'}}, Mail.account)
+
     async def test_media_upload_payload_preview_and_fixed_url(self):
         call = {'operation': 'drive.files.create', 'body': {'name': '你好.txt'},
                 'media': {'mime_type': 'text/plain', 'data_base64': base64.b64encode(b'hello').decode()}}

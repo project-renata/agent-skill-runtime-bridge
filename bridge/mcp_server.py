@@ -219,7 +219,7 @@ class OwnerGitHubProvider(GitHubProvider):
 def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None, control=None, gmail=None, google=None, google_secrets=None):
     if auth is None:
         raise ValueError('MCP authentication is required')
-    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.8.0', auth=auth,
+    mcp = FastMCP('Agent Skill Runtime Bridge', version='0.8.1', auth=auth,
         icons=[_SERVER_ICON],
         mask_error_details=True, strict_input_validation=True,
         instructions='Call list_runtime_targets to inspect allowed repositories, refs and paths. '
@@ -246,7 +246,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
     def list_runtime_targets() -> dict:
         """Use this to discover the deployment's allowed repositories, branches, Python program paths and data/write paths."""
-        result = {'runtime_version': '0.8.0', 'repositories': settings.repositories,
+        result = {'runtime_version': '0.8.1', 'repositories': settings.repositories,
                   'github_transport': transport_status(settings.github_token)}
         if gmail:
             result['gmail_transport'] = gmail.discovery()
