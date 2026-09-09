@@ -370,4 +370,6 @@ The platform rejects duplicate connector names. The existing definition was temp
 - Actual ChatGPT dark and light app-detail views were visually checked. The blue/purple image is circular, with a centered white mark and transparent corners; the baked-in white padding and inner rounded-square artwork are gone. The tool action was checked in both themes at normal UI size.
 - Appearance was restored to its original **System** value after the light-theme check.
 
-The old installation (`asdk_app_6a9e7b4a651c8191b5fb8bd836a26ba4`) was removed. The installed/connected list shows the new Bridge. The old private draft definition still exists and is prepared for permanent deletion through its legacy Connectors draft-management view; final deletion is awaiting the user confirmation required by the browser tool. Issue #151 remains open until cleanup is verified.
+The old installation (`asdk_app_6a9e7b4a651c8191b5fb8bd836a26ba4`) was removed. The installed/connected list shows the new Bridge. The old, uninstalled private draft definition remains; no permanent deletion was performed.
+
+Jie personally inspected the result and explicitly accepted it on 2026-09-09. The visual and real-tool checks above satisfy the issue acceptance criteria. [Issue #151](https://github.com/project-renata/project-renata/issues/151) was closed as completed at `2026-09-09T14:25:55Z`. Retaining the uninstalled draft does not represent a second active connection; its permanent deletion is separate from the accepted icon correction.
