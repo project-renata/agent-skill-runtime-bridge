@@ -58,7 +58,7 @@ class GmailTransport:
 
     @classmethod
     def from_env(cls, env):
-        raw = env.get('BRIDGE_GMAIL_CREDENTIALS')
+        raw = env.get('BRIDGE_GOOGLE_CREDENTIALS') or env.get('BRIDGE_GMAIL_CREDENTIALS')
         if not raw:
             return None
         try:
@@ -183,6 +183,7 @@ def summarize(raw, body_limit):
         mime = part.get('mimeType', '')
         if part.get('filename') or body.get('attachmentId'):
             attachments.append({'filename': part.get('filename', ''), 'mime_type': mime,
+                                'part_id': part.get('partId'),
                                 'size': body.get('size', 0), 'attachment_id': body.get('attachmentId')})
             return
         encoded = body.get('data')

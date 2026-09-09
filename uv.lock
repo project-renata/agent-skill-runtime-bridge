@@ -9,11 +9,12 @@ resolution-markers = [
 
 [[package]]
 name = "agent-skill-runtime-bridge"
-version = "0.7.0"
+version = "0.8.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "py-key-value-aio", extra = ["redis"] },
+    { name = "pypdf" },
 ]
 
 [package.dev-dependencies]
@@ -25,6 +26,7 @@ dev = [
 requires-dist = [
     { name = "fastmcp", specifier = ">=3.4.7,<4" },
     { name = "py-key-value-aio", extras = ["redis"], specifier = ">=0.4.5" },
+    { name = "pypdf", specifier = ">=6,<7" },
 ]
 
 [package.metadata.requires-dev]
@@ -1024,6 +1026,15 @@ resolution-markers = [
 sdist = { url = "https://files.pythonhosted.org/packages/65/5a/da47f8e91c0e47a74025bf8e1aec8ddc2f3ff17974977dfb34ee8da93396/pyodide_py-314.0.6.tar.gz", hash = "sha256:7bc3a9f7ec7bead703b4b3495ef97ce4868f7bea5209f421afe5441c7ced497a", size = 62813, upload-time = "2026-08-25T07:00:50.538Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2e/e0/4dffe56b7aad80bd527d1514e717e11661c361f0f4ad30b7be6e514371f6/pyodide_py-314.0.6-py3-none-any.whl", hash = "sha256:e1c613566d7b5f94046316171f85288e5db0f1c6fd4eb4f21f7a658e57ef2195", size = 70398, upload-time = "2026-08-25T07:00:49.23Z" },
+]
+
+[[package]]
+name = "pypdf"
+version = "6.18.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/c3/9fa0666f280552bd3833562d985b785fce1ddb3804937edd2fd6a3f2bdb3/pypdf-6.18.0.tar.gz", hash = "sha256:ae58b7d93c22c169ffb02c3b06321c45c4f223b4916536568adb57d789d95d01", size = 7024871, upload-time = "2026-09-07T16:48:16.444Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/a5/d5922a078c9a612327681d4793404f82998f4d66213add6fdc0659245856/pypdf-6.18.0-py3-none-any.whl", hash = "sha256:05b762b77bcb9dcb4a7c91fcf5dded585b25bee7269ab3d3001d7c55fa1b324b", size = 393848, upload-time = "2026-09-07T16:48:14.254Z" },
 ]
 
 [[package]]

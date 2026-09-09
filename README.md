@@ -607,3 +607,84 @@ claiming long-term unattended operation. See Google's
 After deployment refresh the **existing** Bridge app's tool definitions in Web.
 Confirm discovery, an authenticated search and a body read. Server deployment
 alone does not prove the Web client has imported the new schemas.
+
+
+## Full Google Services (0.8.0)
+
+The existing authenticated MCP now exposes Gmail, Calendar, Tasks, Drive, Docs,
+Sheets and Slides through one account-bound transport. The original four Gmail
+read tools remain compatible. `google_services_catalog` describes 220 pinned
+Google REST methods, native parameters and request schemas. The complete catalog
+includes mail/draft/label/filter/settings operations, calendar and recurring event
+CRUD, Tasks CRUD/completion/movement, Drive uploads/downloads/folders/copies/moves/
+trash/sharing/comments, and native Docs/Sheets/Slides create/get/batchUpdate.
+
+Use `google_services_read` for reads. For writes, `google_services_prepare` stores
+an exact encrypted plan, snapshots existing targets and returns its concrete
+preview. `google_services_execute(plan_id, plan_hash)` rechecks sources, executes
+once and records the outcome. The same user request must keep the same idempotency
+key. User instructions determine authorization; preparation is not authorization.
+No fresh confirmation is needed when the exact effect is already authorized.
+Mail exits, sends, invitations and sharing must follow the user's current scope.
+
+Plans expire after 30 minutes; Redis retains encrypted previews/receipts for 24
+hours. Permanent non-secret claims prevent replay after receipts expire. A crash
+or uncertain Google response cannot cause automatic resend/create. Read-back
+failure is distinct from write failure. Batches are sequential and stop at the
+first failure; they are not cross-service transactions. Use native batchUpdate or
+separate verified plans for consecutive edits of the same resource. API ETags are
+sent as If-Match when available; services without conditional updates still have
+a check/write race. Clients needing stronger native semantics should provide
+Docs/Slides writeControl or explicit source checks.
+
+`google_mail_compose` creates UTF-8 MIME for draft/send/reply/forward with explicit
+recipients and attachments. It never sends. `google_read_document` extracts
+bounded text/PDF or native Drive exports. For Gmail use `{message_id,part_id}`:
+Gmail attachment handles can rotate on each GET, whereas MIME partId is stable.
+Encrypted PDF passwords are host-only references bound to a source SHA256 in
+`BRIDGE_GOOGLE_DOCUMENT_SECRETS` (reference -> {sha256,password}); never pass them
+as tool input. Scanned pages report the need for local OCR.
+
+`google_workflow_prepare` supports followup_put/close, registration_track,
+mail_to_calendar and registration_confirm. Stable tracking keys deduplicate
+Google Tasks and deterministic Calendar IDs. Confirmation requires source evidence
+and creates/verifies the calendar event before removing its matching tracker.
+Submitted registrations are not confirmation. Unexpected ambiguity or partial
+inventory stops the operation.
+
+Production uses `BRIDGE_GOOGLE_CREDENTIALS` (same JSON shape as 0.7.0; the old
+`BRIDGE_GMAIL_CREDENTIALS` remains an upgrade fallback), existing authenticated MCP,
+existing Redis and `BRIDGE_OAUTH_ENCRYPTION_KEY`. Google credentials never enter
+canonical subprocesses. Configure/enable each API in the OAuth client project.
+Full Drive scope also authorizes Docs/Sheets/Slides. Gmail modify covers send,
+drafts and trash; permanent message deletion needs `https://mail.google.com/`.
+Google still enforces scope, Workspace edition and domain administrator rules;
+exposing a method does not grant those privileges. This suite does not claim to
+implement every unrelated Google Cloud, Ads or YouTube product.
+
+Limits: 100 items/page, 10 changes/plan, 50 messages/batch mutation, 2 MiB uploaded
+content, 8 MiB upstream response, 50 PDF pages/extraction. Follow Google pagination
+and explicit truncation flags. Larger uploads require a resumable-upload client.
+The pinned schemas are the official discovery documents retrieved 2026-09-10 from
+`https://www.googleapis.com/discovery/v1/apis/{service}/{version}/rest`.
+
+Local execution uses the same modules with gog's default account credentials:
+
+```sh
+echo '{"action":"read","operation":"tasks.tasklists.list","params":{"maxResults":10}}' | uv run python -m bridge.google_local --account YOUR_EMAIL
+```
+
+The local encrypted SQLite journal and 0600 key live under
+`~/Library/Application Support/Renata/google-services/<account-hash>/`.
+Local document input may use `keychain_reference:{service,account}` plus a source
+SHA256; `ocr:true` runs installed pdftoppm/tesseract on disposable selected pages.
+It never uploads decrypted content to an OCR provider.
+
+Validation: `uv run python -m unittest discover -s tests -q`. Opt-in real-account
+scratch checks create their own private resources, verify and remove them:
+
+```sh
+uv run python scripts/check_google_services_live.py --account YOUR_EMAIL --execute-scratch --report /tmp/google-services-check.json
+```
+
+The scratch check does not send mail, share files or invite attendees.
