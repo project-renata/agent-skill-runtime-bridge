@@ -357,4 +357,17 @@ Validation for the candidate change:
 - A browser preview checked dark (`#151515`) and light (`#ffffff`) backgrounds, both without masking and with `border-radius: 50%`, at 24, 32, 40, and 64 pixels. The compact icon shows a single circle and a centered visible mark, with no white square, inner rounded-square background, or white disk.
 - Existing ChatGPT app detail and settings pages were inspected. The installed app still shows the previous icon; its menu exposes name/description edits and connection controls but no icon replacement field.
 
-This records asset/MCP validation only. Production deployment and replacement of the separately uploaded ChatGPT app logo have not been performed. Actual GPP dark/light and picker/tool-surface acceptance remain pending; the issue must remain open until those are verified.
+PR #1 was merged as `bc6bd13356e9fd2e84a8e5d08a4bd68c63b07b85` and deployed to Vercel production as `dpl_2eoFDANsVGiyoWsnhmgBxZ1Y4beN`. The deployment is aliased to `https://agent-skill-runtime-bridge.vercel.app`; an unauthenticated initialize request to `/mcp` still returns 401.
+
+The ChatGPT creation form accepts a separately uploaded PNG (10 KB maximum). The same 7,253-byte asset was uploaded successfully after Jie enabled the Chrome extension's **Allow access to file URLs** setting. The preceding `fileChooser.setFiles` attempt returned `Not allowed`; the successful retry confirmed that this setting resolved the observed upload failure.
+
+The platform rejects duplicate connector names. The existing definition was temporarily renamed to `Agents Skill RunTime Bridge · 待替換`, then the replacement was created with the exact final name `Agents Skill RunTime Bridge` and the same `/mcp` URL. OAuth completed, Refresh populated the existing tools, and the previous **Allow all actions** preference was retained. The new connection label also uses the final name.
+
+- New app ID: `asdk_app_6aa1678eeb748191afcbbb16213f379b`.
+- New version ID: `asdk_app_v_6aa1678eeb7c8191a18a67dbba9606b7`.
+- [ChatGPT app detail](https://chatgpt.com/plugins/plugin_asdk_app_6aa1678eeb748191afcbbb16213f379b).
+- [Read-only acceptance conversation](https://chatgpt.com/c/6aa16832-789c-83e8-ba59-79ef30764d78): one `list_runtime_targets` call returned success and version `0.6.2`. The expanded work details show the new circle beside the actual tool action; the inline plugin selection also shows the same image.
+- Actual ChatGPT dark and light app-detail views were visually checked. The blue/purple image is circular, with a centered white mark and transparent corners; the baked-in white padding and inner rounded-square artwork are gone. The tool action was checked in both themes at normal UI size.
+- Appearance was restored to its original **System** value after the light-theme check.
+
+The old installation (`asdk_app_6a9e7b4a651c8191b5fb8bd836a26ba4`) was removed. The installed/connected list shows the new Bridge. The old private draft definition still exists and is prepared for permanent deletion through its legacy Connectors draft-management view; final deletion is awaiting the user confirmation required by the browser tool. Issue #151 remains open until cleanup is verified.
