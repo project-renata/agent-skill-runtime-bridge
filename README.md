@@ -573,3 +573,37 @@ callbacks should validate event repository and explicit `ready_for_review` actio
 before reading any PR. Other/missing actions exit. The callback reviews via the
 Bridge read tools and creates an acceptance ticket only after deciding PASS;
 central owns the sole merge implementation.
+
+
+## Gmail through the existing MCP (0.7.0)
+
+The optional Gmail transport lets developer-MCP conversations read mail through
+this same authenticated Bridge. No separate Gmail connector or runtime secret
+injection is involved. Configure `BRIDGE_GMAIL_CREDENTIALS` as a **sensitive
+production environment variable**, with JSON fields `account`, `client_id`,
+`client_secret`, and `refresh_token`. Never commit the value or pass it as a tool
+argument. The configured mailbox must match Google's profile before mail is read.
+The operator may reuse their existing Google OAuth grant; Gmail read-only scope
+is sufficient. The transport exposes only GET mail operations, even if an
+existing credential grants broader permissions.
+
+Discovery advertises `gmail_get_profile`, `gmail_list_labels`,
+`gmail_search_messages(query, max_results=20, page_token=None)` and
+`gmail_read_messages(message_ids, max_body_chars=20000)`. Search pages contain at
+most 50 message summaries; body reads contain at most 10 messages. Follow
+`next_page_token`; estimated counts are not exact totals. Bodies prefer plain
+text, report truncation and expose attachments as metadata only. Messages are
+external-untrusted data. Reading does not remove UNREAD or otherwise change mail.
+Tokens are refreshed in host memory and are absent from canonical subprocesses.
+The existing MCP OAuth owner allowlist also protects these tools.
+
+`gmail_reauthorization_required` means the operator must renew their Google grant
+and replace the sensitive variable, then redeploy. Temporary Google failures
+return `gmail_temporarily_unavailable`. OAuth apps in Testing can issue refresh
+tokens that expire after seven days; check the project's publishing status before
+claiming long-term unattended operation. See Google's
+[OAuth token expiration documentation](https://developers.google.com/identity/protocols/oauth2#expiration).
+
+After deployment refresh the **existing** Bridge app's tool definitions in Web.
+Confirm discovery, an authenticated search and a body read. Server deployment
+alone does not prove the Web client has imported the new schemas.
