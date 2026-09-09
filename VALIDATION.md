@@ -345,3 +345,16 @@ limitation that it applies to the new connection, not old bindings. The independ
 raw authenticated production initialize capture remains unavailable; the real
 client's successful OAuth, tool discovery and invocation are the production
 integration evidence.
+
+
+## Circular icon asset correction, 2026-09-09
+
+The previous 64 × 64 PNG was RGB with an opaque white margin around a rounded-square background. The replacement `assets/bridge-icon.png` is the compact export of the selected circular artwork in `assets/bridge-icon-master.png`, with transparent corners and no white backplate. The master is retained at 1254 × 1254; the compact export is 7,253 bytes.
+
+Validation for the candidate change:
+
+- All 147 repository tests passed, including MCP initialization with the new RGBA PNG, its pinned SHA-256, the 10 KB size limit, and exact byte equality with the checked-in upload asset.
+- A browser preview checked dark (`#151515`) and light (`#ffffff`) backgrounds, both without masking and with `border-radius: 50%`, at 24, 32, 40, and 64 pixels. The compact icon shows a single circle and a centered visible mark, with no white square, inner rounded-square background, or white disk.
+- Existing ChatGPT app detail and settings pages were inspected. The installed app still shows the previous icon; its menu exposes name/description edits and connection controls but no icon replacement field.
+
+This records asset/MCP validation only. Production deployment and replacement of the separately uploaded ChatGPT app logo have not been performed. Actual GPP dark/light and picker/tool-surface acceptance remain pending; the issue must remain open until those are verified.
