@@ -25,5 +25,6 @@
       "destination": "/api/mcp"
     }
   ],
-  "buildCommand": "python3 maintenance/check_deployment.py"
+  "buildCommand": "python3 maintenance/check_deployment.py && mkdir -p .vercel/static && printf 'validated\\n' > .vercel/static/policy.txt",
+  "outputDirectory": ".vercel/static"
 }

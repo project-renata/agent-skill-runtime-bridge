@@ -78,7 +78,8 @@ class DeploymentPolicyTests(unittest.TestCase):
             self.assertNotIn('do-not-print-secret',result.stdout+result.stderr)
             self.assertNotIn('program_prefixes',result.stdout+result.stderr)
         vercel=json.loads((ROOT/'vercel.json').read_text())
-        self.assertEqual(vercel['buildCommand'],'python3 maintenance/check_deployment.py')
+        self.assertTrue(vercel['buildCommand'].startswith('python3 maintenance/check_deployment.py &&'))
+        self.assertEqual(vercel['outputDirectory'],'.vercel/static')
         self.assertIn('!maintenance/check_deployment.py',(ROOT/'.vercelignore').read_text())
 
     def test_retired_refs_and_programs_reject_before_execution(self):
