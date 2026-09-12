@@ -403,9 +403,9 @@ unchanged canonical baseline. The comparison introduced zero lifecycle failures.
 These are independent canonical test failures, not a reason to add OS semantics
 to Bridge. The release's full Bridge suite passes.
 
-Production promotion and client refresh receipts are recorded by the canonical
-project's release report. The historical observations below describe their dated
-versions; they do not define the current tool surface or ownership.
+Production promotion, actual surface and client-cache status are recorded in
+[the 0.10.0 release report](RELEASE_0_10_0.md). Historical observations describe
+their dated versions; they do not define the current tool surface or ownership.
 # Stateless repository protocol, 0.10.0 (2026-09-12)
 
 The previous decoupling is an independent commit:
@@ -439,3 +439,18 @@ Candidate verification:
 The runtime is intentionally bounded to the pinned Python environment and
 repository-supplied Python modules. Native toolchains, dynamic dependency installs,
 interactive shells and long-running jobs are outside this protocol.
+
+Production promotion passed on 2026-09-12: deployment
+`dpl_9TYp6wrePt3mqCV1gyRowGJwCQDf`, source
+`78c61c4aa86cf18813d4b77a649860065a615876`. Linux CI passed all 207 tests
+without skips. Authenticated live MCP metadata reported version 0.10.0 and all
+25 registered tools. Postdeployment HTTP smoke used the same repository service
+and actual microVM validation, persisted candidate
+`b78953ee89b34c3890abaecc0e9ea7654de5da1c1f39b996576f872b143cf45a` as
+`1196fa2ddd80e367817ea20cdae21a1b990406a9`, verified replay and exact readback,
+and removed all four fixture files in
+`46eb75bfdc16a73130755994f5dd53a9b707a8c4`. Existing canonical Python,
+GitHub, Google catalog and Gmail profile calls also passed on production.
+The existing client still caches old tool definitions; its Refresh remains a
+client operation, not a reason for another server deployment. Full commands,
+receipts, limitations and ownership audit are in the linked release report.
