@@ -24,7 +24,7 @@ def configuration(env):
         grant.pop('authoring', None)
         if repo == 'project-renata/project-renata':
             # One canonical trust boundary replaces individual capability paths.
-            grant['program_prefixes'] = ['memory', 'runtime-workspace/programs']
+            grant['program_prefixes'] = ['memory']
     updated['BRIDGE_REPOSITORIES'] = json.dumps(repositories)
     if not updated.get('BRIDGE_GOOGLE_CREDENTIALS') and updated.get('BRIDGE_GMAIL_CREDENTIALS'):
         updated['BRIDGE_GOOGLE_CREDENTIALS'] = updated['BRIDGE_GMAIL_CREDENTIALS']
