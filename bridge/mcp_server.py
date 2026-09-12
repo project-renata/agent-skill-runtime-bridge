@@ -152,6 +152,7 @@ class WriteIntent(BaseModel):
 
 _oauth_retry_after = ContextVar('oauth_retry_after', default=None)
 _oauth_upstream_expiry = ContextVar('oauth_upstream_expiry', default=None)
+_oauth_profile = ContextVar('oauth_profile', default=None)
 
 
 class OAuthGitHubClient:
@@ -160,40 +161,74 @@ class OAuthGitHubClient:
     Connections stay local to each call, so separate ASGI worker event loops
     never share a live HTTP client. Successful verification is cached by the SDK.
     """
+    def __init__(self, coordinator=None):
+        self.coordinator = coordinator
+
     async def get(self, url, **kwargs):
+        from .transport_cache import credential_key
+        from .github_coordination import retry_delay
+        credential = credential_key(kwargs.get('headers', {}))
+        prior = _oauth_profile.get()
+        # The provider asks a second endpoint only for X-OAuth-Scopes. Reuse the
+        # actual authenticated /user response header, never guess token scopes
+        # or enumerate repositories just to verify an identity.
+        if url == 'https://api.github.com/user/repos' and prior is not None and prior[0] == credential:
+            return prior[1]
+        coordinator, lease = self.coordinator, None
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(url, **kwargs)
+            cached = await asyncio.to_thread(coordinator.read_identity, credential, url) if coordinator else None
+            if cached is not None:
+                response = httpx.Response(200, content=cached['body'], headers=cached['headers'],
+                                          request=httpx.Request('GET', url))
+            else:
+                if coordinator:
+                    lease = await asyncio.to_thread(coordinator.acquire, credential, identity=True)
+                    cached = await asyncio.to_thread(coordinator.read_identity, credential, url)
+                if cached is not None:
+                    response = httpx.Response(200, content=cached['body'], headers=cached['headers'],
+                                              request=httpx.Request('GET', url))
+                else:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        response = await client.get(url, **kwargs)
+                    error = github_http_error(response.status_code, response.headers, response.content)
+                    if coordinator:
+                        await asyncio.to_thread(coordinator.observe, credential, response.status_code, response.headers, error)
+                        await asyncio.to_thread(coordinator.cache_identity, credential, url, response)
+        except BridgeError as error:
+            _oauth_retry_after.set(error.details.get('retry_after', 5))
+            raise
         except httpx.TransportError:
             _oauth_retry_after.set(60)
             raise
+        finally:
+            if lease is not None:
+                await asyncio.to_thread(coordinator.release, lease)
+        if url == 'https://api.github.com/user' and response.status_code == 200:
+            _oauth_profile.set((credential, response))
         if 500 <= response.status_code <= 599:
             _oauth_retry_after.set(60)
         elif response.status_code in (403, 429):
             error = github_http_error(response.status_code, response.headers, response.content)
             if error.code == 'github_rate_limited':
-                details = error.details
-                delay = details.get('retry_after')
-                if delay is None and 'reset_at' in details:
-                    delay = details['reset_at'] - int(time.time())
-                _oauth_retry_after.set(max(1, delay if delay is not None else 60))
+                _oauth_retry_after.set(retry_delay(response.status_code, response.headers, error))
         return response
 
 
 class OwnerGitHubProvider(GitHubProvider):
     """A valid GitHub login alone never grants access to the deployment's repo."""
-    def __init__(self, *, allowed_user_ids, **kwargs):
+    def __init__(self, *, allowed_user_ids, coordinator=None, **kwargs):
         self.allowed_user_ids = frozenset(allowed_user_ids)
         if not self.allowed_user_ids:
             raise ValueError('An explicit GitHub user allowlist is required')
         # Only successful upstream verification is cached. JWT expiry, JTI
         # lookup and the owner check below still run on every MCP request.
-        kwargs.setdefault('cache_ttl_seconds', 60)
+        # Do not stack local and shared TTLs and extend revocation visibility.
+        kwargs.setdefault('cache_ttl_seconds', 0 if coordinator else 60)
         kwargs.setdefault('max_cache_size', 128)
         # A positive SDK threshold refreshes expiring upstream tokens even
         # when a still-cached verification succeeds. Zero skips that refresh.
         kwargs.setdefault('token_expiry_threshold_seconds', 1)
-        kwargs.setdefault('http_client', OAuthGitHubClient())
+        kwargs.setdefault('http_client', OAuthGitHubClient(coordinator))
         super().__init__(**kwargs)
 
     def _get_verification_token(self, upstream_token_set):
@@ -204,6 +239,7 @@ class OwnerGitHubProvider(GitHubProvider):
 
     async def verify_token(self, token):
         state = _oauth_upstream_expiry.set(None)
+        profile_state = _oauth_profile.set(None)
         try:
             verified = await super().verify_token(token)
             expiry = _oauth_upstream_expiry.get()
@@ -217,6 +253,7 @@ class OwnerGitHubProvider(GitHubProvider):
                 return verified
             return None
         finally:
+            _oauth_profile.reset(profile_state)
             _oauth_upstream_expiry.reset(state)
 
 
@@ -224,7 +261,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     if auth is None:
         raise ValueError('MCP authentication is required')
     repositories = repository_service or RepositoryService(settings, fetch=fetch, send=send,
-        evidence=Evidence(settings.key), validator=execute_validation)
+        evidence=Evidence(settings.key), validator=execute_validation, archive=archive)
     mcp = FastMCP('Agent Skill Runtime Bridge', version=__version__, auth=auth,
         icons=[_SERVER_ICON],
         mask_error_details=True, strict_input_validation=True,
@@ -242,6 +279,8 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
                   'github_transport': transport_status(settings.github_token)}
         result['repository_operations'] = {
             'tools': ['query_repository', 'evaluate_repository_candidate', 'commit_repository_candidate'],
+            'query_limits': {'upstream_requests_per_page': 32, 'scan_files_per_page': 512,
+                'scan_bytes_per_page': 16777216, 'search_continuation': 'Signed immutable commit and file/line position.'},
             'candidate': 'Stateless base commit plus per-file preconditions and exact changes, bound by SHA256.',
             'validation': {'runtime': 'Python 3.14.4 standard library; repository-owned Python modules',
                 'manifest_version': 1, 'image': VALIDATION_IMAGE, 'network': 'deny-all',
@@ -316,7 +355,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})
     async def query_repository(repository: str, ref: str, query: Query) -> dict:
-        """Read a bounded immutable repository tree, literal content search or UTF-8 file/range. Returns resolved commit, completeness and truncation; file reads include whole-file SHA256. Paths are repository-relative and allowlisted. No shell, filesystem path discovery or regex execution."""
+        """Read a bounded immutable repository tree, literal content search or UTF-8 file/range. Returns resolved commit, completeness and request diagnostics; file reads include whole-file SHA256. Search next_cursor continues the same query and commit; honor returned retry timing. Paths are repository-relative and allowlisted. No shell, filesystem path discovery or regex execution."""
         return await repository_call(repositories.query, repository, ref, query.model_dump(exclude_none=True))
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})
@@ -480,6 +519,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
 
 
 def production_app(env=None):
+    from .github_coordination import coordinator_from_env
     env = os.environ if env is None else env
     redis_url = env.get('BRIDGE_OAUTH_REDIS_URL') or env.get('REDIS_URL', '')
     # Vercel's native Upstash integration injects REDIS_URL. Always use TLS,
@@ -508,7 +548,7 @@ def production_app(env=None):
     storage = FernetEncryptionWrapper(
         key_value=RedisStore(url=redis_url, default_collection='runtime-bridge-oauth'),
         fernet=Fernet(env['BRIDGE_OAUTH_ENCRYPTION_KEY']))
-    auth = OwnerGitHubProvider(allowed_user_ids=allowed,
+    auth = OwnerGitHubProvider(allowed_user_ids=allowed, coordinator=coordinator_from_env(env),
         client_id=env['BRIDGE_OAUTH_CLIENT_ID'], client_secret=env['BRIDGE_OAUTH_CLIENT_SECRET'],
         base_url=base, required_scopes=['read:user'], client_storage=storage,
         jwt_signing_key=env['BRIDGE_OAUTH_SIGNING_KEY'],

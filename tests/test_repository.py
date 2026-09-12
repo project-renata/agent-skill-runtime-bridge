@@ -85,7 +85,18 @@ class GitFixture:
         if path.startswith('/git/commits/'):
             return deepcopy(self.commits[path.split('/')[-1]])
         if path.startswith('/git/trees/'):
-            return deepcopy(self.trees[path.split('/')[-1]])
+            sha = path.split('/')[-1].split('?')[0]
+            if '?recursive=1' not in path:
+                return deepcopy(self.trees[sha])
+            entries = []
+            def walk(tree, prefix=''):
+                for entry in self.trees[tree]['tree']:
+                    item = {**entry, 'path': prefix + entry['path']}
+                    entries.append(item)
+                    if entry['type'] == 'tree':
+                        walk(entry['sha'], item['path'] + '/')
+            walk(sha)
+            return {'sha': sha, 'tree': entries, 'truncated': False}
         if path.startswith('/git/blobs/'):
             return {'encoding': 'base64', 'content': base64.b64encode(self.objects[path.split('/')[-1]]).decode()}
         if path.startswith('/compare/'):

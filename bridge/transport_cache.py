@@ -14,6 +14,7 @@ import time
 from urllib.parse import urlsplit
 
 from .core import BridgeError
+from .request_budget import spend_request
 
 _LOG = logging.getLogger("bridge.github_transport")
 _OBJECT = re.compile(r"/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/git/(commits|trees|blobs)/([0-9a-f]{40})")
@@ -76,6 +77,7 @@ class TransportState:
         return self._stats[credential]
 
     def started(self, credential):
+        spend_request()
         with self._lock:
             self._stat(credential)["upstream_requests"] += 1
 

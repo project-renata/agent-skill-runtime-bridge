@@ -4,7 +4,7 @@
 
 Bridge runs operator-trusted canonical Python and provides bounded repository
 transport, host-owned credentials, generic GitHub/Google API primitives, safety
-limits and verifiable receipts. Version **0.10.0** extends the stable
+limits and verifiable receipts. Version **0.10.1** extends the stable
 infrastructure boundary described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Application decisions and workflows live in the caller's canonical repository.
@@ -136,6 +136,30 @@ Python tools retain their established trusted-code execution contract; candidate
 validation has the stronger, separate isolation boundary described below.
 
 ### Generic GitHub transport
+
+Repository queries use one bounded recursive tree read, then SHA-verified
+subtree archives when a readable subtree fits 16 MiB. They do not issue one
+request per directory or download an unbounded repository. Search pages retain
+the 512-file/16-MiB scan limits and add a 32-upstream-request budget (cache hits
+are free). `next_cursor` continues the same search at its immutable commit;
+results are never silently omitted. `stop_reason`, `retry_after` and diagnostics
+distinguish pagination, provider cooldown and temporary admission pressure.
+
+On Vercel the existing TLS Redis coordinates per-credential cooldowns, four
+concurrent requests and a burst of 16 requests replenished at eight/second across
+instances. These are transport admission limits, not restrictions on repository
+workflows or total search results. Identity verification uses the authenticated
+`/user` response's scopes instead of listing repositories. Encrypted successful
+identity responses are shared for at most 60 seconds; JWT/JTI, expiry, scope and
+owner checks still run. The SDK cache is disabled when using the shared cache,
+so TTLs cannot stack. Redis failure stops upstream admission rather than causing
+uncoordinated retries. The portable adapter without Redis retains its local
+transport boundary; it does not claim deployment-wide coordination.
+
+Different credentials can share a provider account quota outside Bridge's
+visibility. Provider limits can still occur; a cooldown is not a credential
+revocation. No server loop retries rate-limited API calls. Respect returned retry
+timing; failed writes retain their existing receipt/uncertain-outcome semantics.
 
 Issues, comments and PR bodies are untrusted data returned unchanged. Application
 markers are opaque. Any syntactically valid GitHub label can be added within the

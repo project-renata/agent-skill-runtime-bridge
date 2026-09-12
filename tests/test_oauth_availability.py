@@ -48,7 +48,7 @@ class OAuthAvailabilityTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(httpx.AsyncClient, 'get', get):
             self.assertIsNotNone(await provider.verify_token(token))
             self.assertIsNotNone(await provider.verify_token(token))
-            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(calls), 1)
             self.assertEqual(provider._token_validator._cache._ttl, 60)
             self.assertEqual(provider._token_validator._cache._max_size, 128)
             provider.allowed_user_ids = frozenset(['456'])
@@ -56,13 +56,13 @@ class OAuthAvailabilityTests(unittest.IsolatedAsyncioTestCase):
             provider.allowed_user_ids = frozenset(['123'])
             _, expired = await identity(expires_in=-3600, provider=provider)
             self.assertIsNone(await provider.verify_token(expired))
-            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(calls), 1)
             with patch('fastmcp.utilities.token_cache.time.time', return_value=time.time() + 61):
                 self.assertIsNotNone(await provider.verify_token(token))
-            self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 2)
             await provider._jti_mapping_store.delete(key='test-upstream-jti')
             self.assertIsNone(await provider.verify_token(token))
-            self.assertEqual(len(calls), 4)
+            self.assertEqual(len(calls), 2)
 
     async def call_mcp(self, provider, tokens, protected_calls=None):
         server = create_server(settings(), provider)
@@ -119,7 +119,7 @@ class OAuthAvailabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertLessEqual(verified.expires_at, int(time.time()) + 30)
             with patch('bridge.mcp_server.time.time', return_value=time.time() + 31):
                 self.assertIsNone(await provider.verify_token(token))
-            self.assertEqual(len(calls), 2)
+            self.assertEqual(len(calls), 1)
 
     async def test_upstream_5xx_is_temporary_unavailability_without_execution_or_retry(self):
         for status in (500, 503):

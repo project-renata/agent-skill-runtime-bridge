@@ -84,6 +84,18 @@ Reviewers still apply the ownership test to new generic-looking code. Positive
 tests cover independent callers, opaque application text/labels, source changes,
 credentials, snapshots, dependency closure, concurrency and atomic writes.
 
+## Upstream work boundary
+
+Output bounds are not upstream work bounds. Query planning must avoid a request
+per directory/file, count actual requests independently of returned matches, and
+return immutable continuation when the page budget is reached. Existing snapshot
+SHA/size/path/credential checks also apply to efficient archive reads. Tests model
+cold, warm, expired and independent workers, not only a warm-process happy path.
+Deployment-wide Redis admission and cooldown complement process-local object
+reuse. A provider throttle must not become an invalid-token refresh loop, and
+temporary coordination failure must not remove admission protection or bypass
+authentication. These controls belong to infrastructure, independent of callers.
+
 ## 0.9 boundary transition
 
 The previous release bundled dispatch and five Google business workflows. Their

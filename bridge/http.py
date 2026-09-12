@@ -1,12 +1,14 @@
 """CPython's GitHub transport. Credentials only reach api.github.com."""
 import asyncio
 import json
+from contextlib import nullcontext
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
 
-from .core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_TREE_RESPONSE, github_http_error
+from .core import BridgeError, MAX_FILE, MAX_SNAPSHOT_FILE, MAX_TREE_RESPONSE, MAX_ARCHIVE_BYTES, github_http_error
 from .transport_cache import TransportState, credential_key, immutable_key, request_kind
+from .github_coordination import coordinator_from_env
 
 
 _transport = TransportState()
@@ -28,15 +30,18 @@ async def send_json(method, url, headers, body=None):
     credential = credential_key(headers)
     key = immutable_key(method, url, headers, body)
     kind = request_kind(url)
+    coordinator = coordinator_from_env()
 
     def fetch():
-        with _transport.upstream(credential):
+        with _transport.upstream(credential), (coordinator.upstream(credential) if coordinator else nullcontext()):
             try:
                 data = json.dumps(body, ensure_ascii=False, allow_nan=False).encode() if body is not None else None
                 request_headers = {**headers, "Content-Type": "application/json"} if data is not None else headers
                 _transport.started(credential)
                 with build_opener(NoRedirects).open(Request(url, data=data, headers=request_headers, method=method), timeout=15) as response:
                     _transport.observe(credential, kind, response.status, response.headers)
+                    if coordinator:
+                        coordinator.observe(credential, response.status, response.headers)
                     limit = (MAX_TREE_RESPONSE if "/git/trees/" in url else
                              MAX_SNAPSHOT_FILE * 2 if "/git/blobs/" in url else MAX_FILE * 2)
                     raw = response.read(limit + 1)
@@ -51,6 +56,8 @@ async def send_json(method, url, headers, body=None):
             except HTTPError as error:
                 classified = github_http_error(error.code, error.headers, error.read(8192), method)
                 _transport.observe(credential, kind, error.code, error.headers, classified)
+                if coordinator:
+                    coordinator.observe(credential, error.code, error.headers, classified)
                 raise classified from None
             except (URLError, ValueError, TimeoutError):
                 raise BridgeError("github_request_failed", 502) from None
@@ -77,15 +84,16 @@ class BoundedReader:
         return data
 
 
-def read_archive(stream, entries):
+def read_archive(stream, entries, byte_limit=None):
     """Stream normal selected files only; never extract paths or Git metadata."""
     import gzip
     import tarfile
     from .core import MAX_ARCHIVE_BYTES, MAX_TREE_ENTRIES, safe_path
 
+    byte_limit = MAX_ARCHIVE_BYTES if byte_limit is None else byte_limit
     files, prefix, count = {}, None, 0
-    compressed = BoundedReader(stream, MAX_ARCHIVE_BYTES)
-    expanded = BoundedReader(gzip.GzipFile(fileobj=compressed), MAX_ARCHIVE_BYTES)
+    compressed = BoundedReader(stream, byte_limit)
+    expanded = BoundedReader(gzip.GzipFile(fileobj=compressed), byte_limit)
     try:
         with tarfile.open(fileobj=expanded, mode="r|") as archive:
             for member in archive:
@@ -116,24 +124,29 @@ def read_archive(stream, entries):
     return files
 
 
-async def fetch_archive(repository, commit, headers, entries):
+async def fetch_archive(repository, commit, headers, entries, *, byte_limit=None):
     """Download a commit/tree object resolved by the core, with bounded extraction."""
     from urllib.parse import quote, urlsplit
+    coordinator = coordinator_from_env()
 
     def download():
         credential = credential_key(headers)
         url = "https://api.github.com/repos/" + quote(repository, safe="/") + "/tarball/" + commit
         opener = build_opener(NoRedirects())
-        with _transport.upstream(credential):
+        with _transport.upstream(credential), (coordinator.upstream(credential) if coordinator else nullcontext()):
             try:
                 try:
                     _transport.started(credential)
                     response = opener.open(Request(url, headers=headers), timeout=30)
                     _transport.observe(credential, "archive", response.status, response.headers)
+                    if coordinator:
+                        coordinator.observe(credential, response.status, response.headers)
                 except HTTPError as redirect:
                     if redirect.code != 302:
                         raise
                     _transport.observe(credential, "archive", redirect.code, redirect.headers)
+                    if coordinator:
+                        coordinator.observe(credential, redirect.code, redirect.headers)
                     target = redirect.headers.get("Location", "")
                     redirect.close()
                     parts = urlsplit(target)
@@ -146,11 +159,17 @@ async def fetch_archive(repository, commit, headers, entries):
                     response = opener.open(Request(target, headers={"User-Agent": headers["User-Agent"]}), timeout=30)
                     _transport.observe(credential, "archive", response.status, response.headers)
                 with response:
-                    return read_archive(response, entries)
+                    return read_archive(response, entries, byte_limit)
             except HTTPError as error:
                 classified = github_http_error(error.code, error.headers, error.read(8192))
                 _transport.observe(credential, "archive", error.code, error.headers, classified)
+                if coordinator:
+                    coordinator.observe(credential, error.code, error.headers, classified)
                 raise classified from None
             except (URLError, TimeoutError):
                 raise BridgeError("github_request_failed", 502) from None
     return await asyncio.to_thread(download)
+
+
+async def fetch_query_archive(repository, commit, headers, entries):
+    return await fetch_archive(repository, commit, headers, entries, byte_limit=64 * 1024 * 1024)

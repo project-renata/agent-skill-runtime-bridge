@@ -1,4 +1,4 @@
-# Repository protocol v1 — Bridge 0.10.0
+# Repository protocol v1 — Bridge 0.10.1
 
 Three orthogonal tools expose repository data and bounded execution. They do not
 classify tasks, choose an executor, interpret application lifecycles, create
@@ -24,6 +24,18 @@ historical commit exactly once. `query.operation` selects:
   Returns line numbers and bounded snippets. At most 512 files / 16 MiB are read.
   Large skipped files mark incompleteness; binary files are excluded from text
   search. There is no regex engine, shell expression or local filesystem search.
+  Optional `cursor` is the previous `next_cursor`, with other query fields
+  unchanged. It binds the repository, policy, query, immutable commit and exact
+  file/line position; moving the branch cannot mix revisions between pages.
+  Each page spends at most 32 actual upstream requests; cached objects are free.
+  A bounded recursive tree replaces directory-by-directory traversal. Eligible
+  readable subtrees use existing SHA-verified archives, bounded to 16 MiB of file
+  content and 64 MiB compressed/expanded transport. Larger scopes can still be
+  searched through continuation; the server does not start an autonomous loop.
+  `stop_reason` identifies result/output/scan/request limits or a transient
+  provider/admission pause. Honor `retry_after`/`reset_at` when present. A truncated
+  provider tree explicitly requires a narrower prefix; it is never reported as
+  a complete inventory. Skipped-file counts persist across continuation pages.
 - `read`: UTF-8 `path`, optional inclusive 1-based `start_line/end_line` OR exact
   `byte_start/byte_count`. Byte boundaries must align with UTF-8. Whole-file
   SHA256/size remain attached to range reads. `complete` covers the requested

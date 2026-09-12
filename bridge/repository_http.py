@@ -7,7 +7,7 @@ from pydantic import Field, ValidationError
 
 from .core import BridgeError, Settings
 from .github_service import RedisJournal
-from .http import fetch_json, send_json
+from .http import fetch_json, send_json, fetch_query_archive
 from .repository import Evidence, MAX_INPUT, RepositoryService
 from .repository_models import Candidate, Query, Strict
 from .validation import execute_validation
@@ -46,7 +46,7 @@ def service_from_env(env):
     if url.startswith('redis://'):
         url = 'rediss://' + url[len('redis://'):]
     return RepositoryService(settings, fetch=fetch_json, send=send_json,
-        journal=RedisJournal(url), evidence=Evidence(settings.key), validator=execute_validation)
+        journal=RedisJournal(url), evidence=Evidence(settings.key), validator=execute_validation, archive=fetch_query_archive)
 
 
 async def handle_repository(raw, authorization, service):

@@ -74,8 +74,9 @@ class Evidence:
 
 
 class RepositoryService:
-    def __init__(self, settings, *, fetch, send=None, journal=None, evidence=None, validator=None):
+    def __init__(self, settings, *, fetch, send=None, journal=None, evidence=None, validator=None, archive=None):
         self.settings, self.fetch, self.send = settings, fetch, send
+        self.archive = archive
         self.journal, self.evidence, self.validator = journal, evidence, validator
 
     def policy(self, repository, ref, value):
@@ -143,90 +144,8 @@ class RepositoryService:
         return items, complete
 
     async def query(self, repository, ref, query):
-        fields(query, ['operation'], ['path', 'prefix', 'max_depth', 'max_entries', 'max_bytes',
-            'pattern', 'glob', 'suffix', 'max_results', 'start_line', 'end_line', 'byte_start', 'byte_count'])
-        operation = query['operation']
-        if operation not in ('tree', 'search', 'read'):
-            raise BridgeError('invalid_query_operation')
-        limit = integer(query.get('max_bytes', 32768), 1024, MAX_OUTPUT)
-        github, policy, commit = await self.source(repository, ref, query)
-        result = {'repository': repository, 'resolved_commit': commit, 'operation': operation}
-        if operation == 'read':
-            path = query.get('path')
-            content = await self.content(github, policy, path)
-            source = text(content)
-            if ('start_line' in query or 'end_line' in query) and ('byte_start' in query or 'byte_count' in query):
-                raise BridgeError('ambiguous_read_range')
-            if 'byte_start' in query or 'byte_count' in query:
-                start = integer(query.get('byte_start', 0), 0, len(content))
-                count = integer(query.get('byte_count', limit), 1, MAX_FILE)
-                selected = content[start:start + count]
-                # Exact byte ranges must align with UTF-8 character boundaries.
-                source = text(selected)
-                requested = {'byte_start': start, 'byte_count': count}
-                range_complete = start == 0 and len(selected) == len(content)
-            else:
-                lines = source.splitlines(keepends=True)
-                start = integer(query.get('start_line', 1), 1, max(1, len(lines) + 1))
-                end = integer(query.get('end_line', max(1, len(lines))), start, max(start, len(lines)))
-                source = ''.join(lines[start - 1:end])
-                requested = {'start_line': start, 'end_line': end}
-                range_complete = start == 1 and end >= len(lines)
-            budget = limit - 768
-            raw = source.encode()
-            shown = raw[:budget].decode('utf-8', errors='ignore')
-            result.update(path=path, sha256=digest(content), size=len(content), requested_range=requested,
-                text=shown, truncated=len(raw) > budget, complete=len(raw) <= budget,
-                whole_file=range_complete and len(raw) <= budget, returned_bytes=len(shown.encode()))
-            return result
-        prefix = query.get('prefix', '')
-        entries, complete = await self.inventory(github, policy, prefix,
-            integer(query.get('max_depth', 64), 1, 128), integer(query.get('max_entries', MAX_ENTRIES), 1, MAX_ENTRIES))
-        items, scanned, size, skipped = [], 0, 0, []
-        pattern = query.get('pattern')
-        if operation == 'search' and (not isinstance(pattern, str) or not 1 <= len(pattern) <= 256 or '\n' in pattern):
-            raise BridgeError('invalid_literal_pattern')
-        max_results = integer(query.get('max_results', 100), 1, 1000)
-        glob, suffix = query.get('glob', '*'), query.get('suffix', '')
-        if not isinstance(glob, str) or len(glob) > 256 or not isinstance(suffix, str) or len(suffix) > 128:
-            raise BridgeError('invalid_path_filter')
-        for item in entries:
-            if operation == 'tree':
-                matches = [item]
-            else:
-                if item['type'] != 'file' or not readable(item['path'], policy):
-                    continue
-                if not fnmatch.fnmatchcase(item['path'], glob) or not item['path'].endswith(suffix):
-                    continue
-                if scanned >= MAX_SCAN_FILES or size + (item['size'] or 0) > MAX_SCAN_BYTES:
-                    complete = False
-                    break
-                if (item['size'] or 0) > MAX_FILE:
-                    skipped.append(item['path']); complete = False; continue
-                content = await self.content(github, policy, item['path'])
-                scanned += 1; size += len(content)
-                try:
-                    lines = text(content).splitlines()
-                except BridgeError:
-                    skipped.append(item['path']); continue
-                matches = []
-                for number, line in enumerate(lines, 1):
-                    at = line.find(pattern)
-                    if at >= 0:
-                        snippet = line[max(0, at - 80):at + len(pattern) + 160]
-                        matches.append({'path': item['path'], 'line': number, 'snippet': snippet,
-                                        'snippet_truncated': snippet != line})
-            for match in matches:
-                if (operation == 'search' and len(items) >= max_results) or len(encoded(items + [match])) > limit - 1024:
-                    complete = False
-                    break
-                items.append(match)
-            else:
-                continue
-            break
-        result.update(items=items, complete=complete, truncated=not complete, scanned_files=scanned,
-                      scanned_bytes=size, skipped_count=len(skipped))
-        return result
+        from .repository_query import query as execute_query
+        return await execute_query(self, repository, ref, query)
 
     async def candidate(self, repository, ref, candidate):
         fields(candidate, ['base_commit', 'changes'], ['fingerprint'])

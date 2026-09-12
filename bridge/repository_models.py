@@ -17,6 +17,7 @@ class TreeQuery(Strict):
 
 class SearchQuery(Strict):
     operation: Literal['search']
+    cursor: str | None = Field(default=None, max_length=2048, description='Opaque next_cursor from the same search. Continues at its immutable commit; keep other query fields unchanged.')
     pattern: str = Field(min_length=1, max_length=256, description='Literal, case-sensitive, single-line text. No regex or shell syntax.')
     prefix: str = ''
     glob: str = Field(default='*', max_length=256, description='Case-sensitive path glob filter; no filesystem expansion.')
