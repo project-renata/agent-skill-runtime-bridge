@@ -58,7 +58,7 @@ class GmailTransport:
 
     @classmethod
     def from_env(cls, env):
-        raw = env.get('BRIDGE_GOOGLE_CREDENTIALS') or env.get('BRIDGE_GMAIL_CREDENTIALS')
+        raw = env.get('BRIDGE_GOOGLE_CREDENTIALS')
         if not raw:
             return None
         try:
@@ -68,7 +68,7 @@ class GmailTransport:
                 raise ValueError()
             return cls(**{k: data[k] for k in keys})
         except (ValueError, TypeError):
-            raise ValueError('Invalid BRIDGE_GMAIL_CREDENTIALS') from None
+            raise ValueError('Invalid BRIDGE_GOOGLE_CREDENTIALS') from None
 
     def discovery(self):
         return {'account': self.account, 'mode': 'readonly',

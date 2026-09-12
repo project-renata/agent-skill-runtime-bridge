@@ -116,7 +116,7 @@ def read_document(services, source, max_chars=20000, secret_ref=None, secrets=No
         for page in reader.pages[page_start - 1:page_start - 1 + page_count]:
             writer.add_page(page)
         try:
-            with tempfile.TemporaryDirectory(prefix='renata-google-document-') as directory:
+            with tempfile.TemporaryDirectory(prefix='bridge-google-document-') as directory:
                 target = Path(directory)
                 writer.write(target / 'selected.pdf')
                 subprocess.run(['pdftoppm', '-scale-to', '2200', '-png', str(target / 'selected.pdf'),

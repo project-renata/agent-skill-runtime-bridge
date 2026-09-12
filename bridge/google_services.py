@@ -259,7 +259,7 @@ class GoogleServices:
         return {'account': self.account, 'services': list(SERVICES),
                 'operation_count': len(self.catalog.methods), 'mode': 'read-write',
                 'tools': ['google_services_catalog', 'google_services_read', 'google_services_prepare',
-                          'google_services_execute', 'google_mail_compose', 'google_read_document', 'google_workflow_prepare'],
+                          'google_services_execute', 'google_mail_compose', 'google_read_document'],
                 'limits': {'page_size': 100, 'changes_per_plan': 10, 'upload_bytes': MAX_UPLOAD,
                            'response_bytes': MAX_BYTES, 'plan_valid_seconds': 1800},
                 'usage': 'Discover native operations/schemas. Read directly; prepare exact writes then execute '
@@ -288,7 +288,7 @@ class GoogleServices:
             upload_params = call['params']
             upload_path = re.sub(r'\{([^}]+)\}', lambda m: quote(str(upload_params[m.group(1)]), safe=''), upload_path)
             url = self.catalog.documents[method['service']]['rootUrl'].rstrip('/') + upload_path
-            boundary = 'renata_' + fingerprint(call)[:32]
+            boundary = 'bridge_' + fingerprint(call)[:32]
             media = base64.b64decode(call['media']['data_base64'])
             body = (f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'.encode()
                     + (body or b'{}') + f'\r\n--{boundary}\r\nContent-Type: {call["media"]["mime_type"]}\r\n\r\n'.encode()

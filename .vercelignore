@@ -12,3 +12,12 @@ wrangler.jsonc
 python_modules
 pylock.toml
 .cloudflare-build
+
+.pytest_cache
+.ruff_cache
+__pycache__
+dist
+migrations
+scripts
+VALIDATION.md
+assets/bridge-icon-master.png

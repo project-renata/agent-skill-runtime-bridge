@@ -15,7 +15,7 @@ from bridge.google_documents import read_document
 
 async def check(account, report_path, native_only=False, slides_only=False):
     google = local_services(account)
-    run_id = 'renata-google-check-' + uuid.uuid4().hex[:12]
+    run_id = 'bridge-google-check-' + uuid.uuid4().hex[:12]
     report = {'run_id': run_id, 'account': account, 'started_at': datetime.now(timezone.utc).isoformat(), 'checks': [], 'cleanup': []}
     cleanup = []
     counter = 0
@@ -66,7 +66,7 @@ async def check(account, report_path, native_only=False, slides_only=False):
             label = await change('gmail.users.labels.create', body={'name': run_id})
             cleanup.append(('gmail.users.labels.delete', {'id': label['id']}))
             await change('gmail.users.labels.patch', {'id': label['id']}, {'name': run_id + '-updated'}, verification={'name': run_id + '-updated'})
-            composed = google.compose([account], run_id, 'Renata 完整服務驗證草稿；不寄送。', attachments=[
+            composed = google.compose([account], run_id, 'Bridge 完整服務驗證草稿；不寄送。', attachments=[
                 {'filename': 'scratch.txt', 'mime_type': 'text/plain', 'data_base64': base64.b64encode('附件驗證'.encode()).decode()}])
             draft = await change('gmail.users.drafts.create', body={'message': composed['message']})
             cleanup.append(('gmail.users.drafts.delete', {'id': draft['id']}))
@@ -95,7 +95,7 @@ async def check(account, report_path, native_only=False, slides_only=False):
             await change('tasks.tasks.patch', {'tasklist': tasklist['id'], 'task': task['id']}, {'status': 'needsAction', 'title': 'reopened'}, verification={'status': 'needsAction', 'title': 'reopened'})
             folder = await change('drive.files.create', body={'name': run_id, 'mimeType': 'application/vnd.google-apps.folder'})
             cleanup.append(('drive.files.delete', {'fileId': folder['id']}))
-            content = 'Renata 測試檔案'.encode()
+            content = 'Bridge 測試檔案'.encode()
             file = await change('drive.files.create', {'fields': 'id,name,md5Checksum'}, {'name': 'scratch.txt', 'parents': [folder['id']]}, {'mime_type': 'text/plain', 'data_base64': base64.b64encode(content).decode()})
             cleanup.append(('drive.files.delete', {'fileId': file['id']}))
             downloaded = await read('drive.files.get', {'fileId': file['id'], 'alt': 'media'})
@@ -108,20 +108,20 @@ async def check(account, report_path, native_only=False, slides_only=False):
         if not slides_only:
             doc = await change('docs.documents.create', body={'title': run_id})
             cleanup.append(('drive.files.delete', {'fileId': doc['documentId']}))
-            await change('docs.documents.batchUpdate', {'documentId': doc['documentId']}, {'requests': [{'insertText': {'endOfSegmentLocation': {}, 'text': 'Renata 文件編輯成功。\n'}}]})
+            await change('docs.documents.batchUpdate', {'documentId': doc['documentId']}, {'requests': [{'insertText': {'endOfSegmentLocation': {}, 'text': 'Bridge 文件編輯成功。\n'}}]})
             extracted = read_document(google, {'file_id': doc['documentId']})
             assert '文件編輯成功' in extracted['text']
             sheet = await change('sheets.spreadsheets.create', body={'properties': {'title': run_id}})
             cleanup.append(('drive.files.delete', {'fileId': sheet['spreadsheetId']}))
-            await change('sheets.spreadsheets.values.update', {'spreadsheetId': sheet['spreadsheetId'], 'range': 'A1:B2', 'valueInputOption': 'USER_ENTERED'}, {'values': [['Renata', '測試'], [1, '=A2+1']]})
+            await change('sheets.spreadsheets.values.update', {'spreadsheetId': sheet['spreadsheetId'], 'range': 'A1:B2', 'valueInputOption': 'USER_ENTERED'}, {'values': [['Bridge', '測試'], [1, '=A2+1']]})
             values = await read('sheets.spreadsheets.values.get', {'spreadsheetId': sheet['spreadsheetId'], 'range': 'A1:B2', 'valueRenderOption': 'UNFORMATTED_VALUE'})
             assert values['values'][1][1] == 2
         slides = await change('slides.presentations.create', body={'title': run_id})
         cleanup.append(('drive.files.delete', {'fileId': slides['presentationId']}))
         await change('slides.presentations.batchUpdate', {'presentationId': slides['presentationId']}, {'requests': [
-            {'createSlide': {'objectId': 'renata_slide'}},
-            {'createShape': {'objectId': 'renata_shape', 'shapeType': 'TEXT_BOX', 'elementProperties': {'pageObjectId': 'renata_slide', 'size': {'width': {'magnitude': 300, 'unit': 'PT'}, 'height': {'magnitude': 100, 'unit': 'PT'}}, 'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': 40, 'translateY': 40, 'unit': 'PT'}}}},
-            {'insertText': {'objectId': 'renata_shape', 'text': 'Renata 簡報編輯成功'}}]})
+            {'createSlide': {'objectId': 'bridge_slide'}},
+            {'createShape': {'objectId': 'bridge_shape', 'shapeType': 'TEXT_BOX', 'elementProperties': {'pageObjectId': 'bridge_slide', 'size': {'width': {'magnitude': 300, 'unit': 'PT'}, 'height': {'magnitude': 100, 'unit': 'PT'}}, 'transform': {'scaleX': 1, 'scaleY': 1, 'translateX': 40, 'translateY': 40, 'unit': 'PT'}}}},
+            {'insertText': {'objectId': 'bridge_shape', 'text': 'Bridge 簡報編輯成功'}}]})
         presentation = await read('slides.presentations.get', {'presentationId': slides['presentationId']})
         assert '簡報編輯成功' in json.dumps(presentation, ensure_ascii=False)
         report['result'] = 'pass'

@@ -95,8 +95,8 @@ class GmailTests(unittest.IsolatedAsyncioTestCase):
 class GmailBoundaryTests(unittest.TestCase):
     def test_config_optional_and_secrets_redacted(self):
         self.assertIsNone(GmailTransport.from_env({}))
-        with self.assertRaisesRegex(ValueError, '^Invalid BRIDGE_GMAIL_CREDENTIALS$'):
-            GmailTransport.from_env({'BRIDGE_GMAIL_CREDENTIALS': 'secret-invalid-json'})
+        with self.assertRaisesRegex(ValueError, '^Invalid BRIDGE_GOOGLE_CREDENTIALS$'):
+            GmailTransport.from_env({'BRIDGE_GOOGLE_CREDENTIALS': 'secret-invalid-json'})
 
     def test_mime_prefers_plain_text_and_preserves_attachment_metadata(self):
         raw = {'payload': {'parts': [

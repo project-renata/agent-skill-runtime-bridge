@@ -373,3 +373,36 @@ The platform rejects duplicate connector names. The existing definition was temp
 The old installation (`asdk_app_6a9e7b4a651c8191b5fb8bd836a26ba4`) was removed. The installed/connected list shows the new Bridge. The old, uninstalled private draft definition remains; no permanent deletion was performed.
 
 Jie personally inspected the result and explicitly accepted it on 2026-09-09. The visual and real-tool checks above satisfy the issue acceptance criteria. [Issue #151](https://github.com/project-renata/project-renata/issues/151) was closed as completed at `2026-09-09T14:25:55Z`. Retaining the uninstalled draft does not represent a second active connection; its permanent deletion is separate from the accepted icon correction.
+# Stable infrastructure boundary, 0.9.0 (2026-09-12)
+
+Release candidate validation completed against the full enabled MCP surface:
+
+- 177 Bridge unit/integration tests passed; 5 one-time migration tests passed.
+- Exact 22-tool contract, schema/description/instruction and metadata guards passed.
+  The three retired workflow tools fail lookup; no compatibility registrations remain.
+- Existing snapshot, historical commit, program_ref, dependency closure, readonly,
+  atomic write, optimistic concurrency, credential and OAuth regression tests passed.
+- Canonical Google owner: 8 tests passed, including all five business workflows.
+  Canonical dispatch project: 139 pytest tests and 8 subtests passed, including
+  9 portable owner/transport integration tests. This is not a renewed live dispatch
+  product acceptance.
+- Ruff F/E9 passed for Bridge and migrated canonical code. Wheel and source archive
+  built successfully; an isolated wheel installation exposed version 0.9.0 and the
+  same 22 tools. Pinned Discovery assets are packaged; removed modules are absent.
+- Cloudflare staging passed and removed a deliberately planted stale module.
+- Real Local Google transport scratch validation passed 35 operations across seven
+  services; all 12 created resources were cleaned up. No mail was sent, files shared
+  or attendees invited.
+- The one-time migration preserved 141 opaque Redis claims and merged existing
+  Local encrypted Google journals without losing either journal's records/claims.
+
+Additional canonical OS tests expose existing fixture/semantic drift: the same
+25 lifecycle tests have the same 20 failing subcases with the old and new Bridge;
+the Recall contract test and one Sync quality-feedback fixture also fail on the
+unchanged canonical baseline. The comparison introduced zero lifecycle failures.
+These are independent canonical test failures, not a reason to add OS semantics
+to Bridge. The release's full Bridge suite passes.
+
+Production promotion and client refresh receipts are recorded by the canonical
+project's release report. The historical observations below describe their dated
+versions; they do not define the current tool surface or ownership.

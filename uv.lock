@@ -9,8 +9,8 @@ resolution-markers = [
 
 [[package]]
 name = "agent-skill-runtime-bridge"
-version = "0.8.1"
-source = { virtual = "." }
+version = "0.9.0"
+source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "py-key-value-aio", extra = ["redis"] },

@@ -1,1 +1,3 @@
-"""Provider-neutral execution of trusted repository programs."""
+"""Stable canonical runtime and host transport primitives."""
+
+__version__ = "0.9.0"

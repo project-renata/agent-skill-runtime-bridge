@@ -93,11 +93,11 @@ class GoogleServicesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'conflict')
         self.assertEqual(self.fake.sent, 0)
 
-    async def test_failed_expected_state_retains_later_tracking_task(self):
+    async def test_failed_expected_state_stops_later_independent_mutation(self):
         changes = [{'operation': 'gmail.users.labels.patch', 'params': {'id': 'Label_1'},
                     'body': {'name': 'after'}, 'verify': {'require_readback': True, 'expected': {'name': 'unexpected'}}},
-                   {'operation': 'tasks.tasks.delete', 'params': {'tasklist': 'list', 'task': 'tracker'}}]
-        preview = await self.google.prepare(changes, 'retain-tracker-on-unverified-first-effect')
+                   {'operation': 'tasks.tasks.delete', 'params': {'tasklist': 'list', 'task': 'resource'}}]
+        preview = await self.google.prepare(changes, 'stop-after-unverified-first-effect')
         result = await self.google.execute(preview['plan_id'], preview['plan_hash'])
         self.assertEqual(result['status'], 'applied_verification_failed')
         self.assertEqual(self.fake.sent, 1)
@@ -227,36 +227,6 @@ class GoogleBoundaryTests(unittest.TestCase):
         self.assertNotEqual(resource_fingerprint('gmail.users.drafts.get', a), resource_fingerprint('gmail.users.drafts.get', b))
         self.assertEqual(resource_fingerprint('drive.files.get', {'id': 'file', 'thumbnailLink': 'old'}),
                          resource_fingerprint('drive.files.get', {'id': 'file', 'thumbnailLink': 'new'}))
-
-    def test_registration_confirmation_order_duplicate_and_missing_evidence(self):
-        from bridge.google_workflows import prepare_workflow
-        from bridge.google_services import fingerprint
-        google = GoogleServices(Mail(), MemoryGoogleJournal(), request=FakeAPI())
-        marker = '[renata-followup:' + fingerprint({'account': Mail.account, 'key': 'registration-one'})[:40] + ']'
-        task = {'id': 'tracker', 'title': 'Await confirmation', 'notes': marker}
-        original = google._read
-        def read(call):
-            operation = call['operation']
-            if operation == 'tasks.tasks.list':
-                data = {'items': [task]}
-            elif operation == 'tasks.tasks.get':
-                data = task
-            elif operation == 'calendar.events.get':
-                raise BridgeError('google_not_found', 404)
-            else:
-                return original(call)
-            return {'data': data, 'fingerprint': fingerprint(data), 'next_page_token': None}
-        google._read = read
-        args = {'tracking_key': 'registration-one', 'message_id': 'abc123', 'tasklist_id': 'list',
-                'calendar_id': 'primary', 'confirmation_quote': 'hello',
-                'event': {'summary': 'Confirmed event', 'start': {'date': '2026-09-11'}, 'end': {'date': '2026-09-12'}}}
-        result = prepare_workflow(google, 'registration_confirm', args, 'registration-confirm-once')
-        self.assertEqual([c['operation'] for c in result['changes']], ['calendar.events.insert', 'tasks.tasks.delete'])
-        self.assertTrue(result['changes'][0]['verify']['require_readback'])
-        self.assertEqual(result['changes'][0]['verify']['expected']['status'], 'confirmed')
-        self.assertEqual(prepare_workflow(google, 'registration_confirm', args, 'registration-confirm-once'), result)
-        with self.assertRaisesRegex(BridgeError, 'google_confirmation_source_quote_required'):
-            prepare_workflow(google, 'registration_confirm', {**args, 'confirmation_quote': 'not in source'}, 'registration-invalid-source')
 
     def test_document_stable_part_selector_refreshes_attachment_handle(self):
         from bridge.google_services import fingerprint

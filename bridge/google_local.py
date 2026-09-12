@@ -13,7 +13,6 @@ from .gmail import GmailTransport
 from .google_services import GoogleServices
 from .google_journal import LocalGoogleJournal
 from .google_documents import read_document
-from .google_workflows import prepare_workflow
 
 
 def local_services(account):
@@ -23,7 +22,7 @@ def local_services(account):
         secret = subprocess.run(['security', 'find-generic-password', '-s', 'gogcli',
             '-a', 'client/default/client-secret', '-w'], capture_output=True, text=True,
             check=True, timeout=15).stdout.strip()
-        with tempfile.TemporaryDirectory(prefix='renata-google-auth-') as directory:
+        with tempfile.TemporaryDirectory(prefix='bridge-google-auth-') as directory:
             path = Path(directory) / 'token.json'
             subprocess.run(['gog', 'auth', 'tokens', 'export', account, '--out', str(path)],
                            capture_output=True, check=True, timeout=30)
@@ -33,11 +32,11 @@ def local_services(account):
         gmail = GmailTransport(client['client_id'], secret, token['refresh_token'], account)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError):
         raise BridgeError('google_local_gog_credentials_unavailable', 401) from None
-    directory = Path.home() / 'Library/Application Support/Renata/google-services' / hashlib.sha256(account.encode()).hexdigest()[:16]
+    directory = Path.home() / 'Library/Application Support/AgentSkillRuntimeBridge/google-services' / hashlib.sha256(account.encode()).hexdigest()[:16]
     return GoogleServices(gmail, LocalGoogleJournal(directory))
 
 
-async def dispatch(services, request):
+async def execute_request(services, request):
     args = dict(request)
     action = args.pop('action')
     if action == 'catalog':
@@ -50,8 +49,6 @@ async def dispatch(services, request):
         return await services.execute(**args)
     if action == 'compose':
         return await asyncio.to_thread(services.compose, **args)
-    if action == 'workflow':
-        return await asyncio.to_thread(prepare_workflow, services, **args)
     if action == 'document':
         # Local secrets can be referenced by macOS Keychain service/account; the
         # canonical caller passes only the reference and expected source SHA.
@@ -77,7 +74,7 @@ def main():
     args = parser.parse_args()
     try:
         request = json.load(sys.stdin)
-        result = asyncio.run(dispatch(local_services(args.account), request))
+        result = asyncio.run(execute_request(local_services(args.account), request))
         print(json.dumps(result, ensure_ascii=False))
     except BridgeError as error:
         print(json.dumps({'ok': False, 'error': error.code}))

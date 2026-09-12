@@ -12,3 +12,8 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .vercel
+
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/

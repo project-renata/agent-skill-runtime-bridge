@@ -14,8 +14,7 @@ MAX_FILE = 512 * 1024
 MAX_TOTAL = 2 * 1024 * 1024
 MAX_FILES = 32
 MAX_RESULT = 512 * 1024
-# Bounded directory capacity: >2x the 2026-09 Story/Fable inventory
-# (15,455 files, 171.3 MiB, 6,292 directories; largest file 1.68 MiB).
+# Bounded directory capacity for large repository snapshots
 # Explicit-file and atomic-write limits above remain unchanged.
 MAX_SNAPSHOT_FILES = 32768
 MAX_SNAPSHOT_FILE = 4 * 1024 * 1024
@@ -141,6 +140,10 @@ class Settings:
                 raise BridgeError("server_not_configured", 503)
             if not isinstance(policy, dict) or not isinstance(policy.get("ref"), str) or not policy["ref"]:
                 raise BridgeError("server_not_configured", 503)
+            allowed = {"ref", "program_prefixes", "data_prefixes", "read_all", "additional_refs",
+                       "write_refs", "write_prefixes", "write_all_refs", "write_prefixes_by_ref"}
+            if set(policy) - allowed:
+                raise BridgeError("unknown_repository_policy_field", 503)
             if not isinstance(policy.get("read_all", False), bool):
                 raise BridgeError("server_not_configured", 503)
             for field in ("program_prefixes", "data_prefixes"):
@@ -173,30 +176,6 @@ class Settings:
                         raise BridgeError("server_not_configured", 503)
                     for prefix in prefixes:
                         safe_path(prefix)
-            repo_files = policy.get("repo_files")
-            if repo_files is not None:
-                if (not isinstance(repo_files, dict) or set(repo_files) != {"ref", "program"}
-                        or repo_files["ref"] not in [policy["ref"], *policy.get("additional_refs", [])]):
-                    raise BridgeError("server_not_configured", 503)
-                program = safe_path(repo_files["program"])
-                if not program.endswith(".py") or not under(program, policy["program_prefixes"]):
-                    raise BridgeError("server_not_configured", 503)
-            authoring = policy.get("authoring")
-            if authoring is not None:
-                if (not isinstance(authoring, dict)
-                        or set(authoring) != {"ref", "program", "program_prefix", "data_prefix"}
-                        or authoring["ref"] not in [policy["ref"], *policy.get("additional_refs", [])]
-                        or authoring["ref"] not in policy.get("write_refs", [])):
-                    raise BridgeError("server_not_configured", 503)
-                writer = safe_path(authoring["program"])
-                programs = safe_path(authoring["program_prefix"])
-                data = safe_path(authoring["data_prefix"])
-                if (not writer.endswith(".py") or not under(writer, policy["program_prefixes"])
-                        or not under(programs, policy["program_prefixes"])
-                        or not writable(programs, policy, authoring["ref"])
-                        or not readable(data, policy)
-                        or not writable(data, policy, authoring["ref"])):
-                    raise BridgeError("server_not_configured", 503)
         self.key, self.repositories, self.github_token = key, repositories, github_token
 
     @classmethod

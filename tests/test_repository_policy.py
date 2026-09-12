@@ -18,9 +18,7 @@ POLICY = {
     "program_prefixes": ["program", "workspace/programs"],
     "additional_refs": ["workspace"], "write_refs": ["main", "workspace"],
     "write_prefixes_by_ref": {"main": ["memory/story"], "workspace": ["workspace"]},
-    "repo_files": {"ref": "main", "program": "program/main.py"},
-    "authoring": {"ref": "workspace", "program": "program/main.py",
-                  "program_prefix": "workspace/programs", "data_prefix": "workspace/data"},
+
 }
 WRITER = b'''from pathlib import Path
 def run(root, data):
@@ -122,8 +120,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         with TestClient(app) as client:
             result = rpc(client, "tools/call", {"name": "list_runtime_targets", "arguments": {}}).json()["result"]
             self.assertEqual(result["structuredContent"]["repositories"]["owner/private"], POLICY)
-            self.assertIn("repo_files_usage", result["structuredContent"])
-            self.assertIn("authoring_usage", result["structuredContent"])
+            self.assertNotIn("repo_files_usage", result["structuredContent"])
+            self.assertNotIn("authoring_usage", result["structuredContent"])
 
     def test_whole_write_main_cross_directory_batch_and_workspace_isolation(self):
         policy = self.full_write_policy()
@@ -192,8 +190,8 @@ class RepositoryPolicyTests(unittest.TestCase):
         with TestClient(server.http_app(path="/mcp", stateless_http=True, json_response=True)) as client:
             result = rpc(client, "tools/call", {"name": "list_runtime_targets", "arguments": {}}).json()["result"]["structuredContent"]
             self.assertEqual(result["repositories"]["owner/private"], policy)
-            self.assertIn("write_all_refs", result["repo_files_usage"]["boundaries"])
-            self.assertIn("authoring_usage", result)
+            self.assertEqual(result["repositories"]["owner/private"]["write_all_refs"], ["main"])
+            self.assertNotIn("authoring_usage", result)
 
 
 if __name__ == "__main__":
