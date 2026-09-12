@@ -7,7 +7,7 @@ import hmac
 import json
 import time
 
-from .core import (BridgeError, GitHub, MAX_FILE, MAX_FILES, MAX_TOTAL, immutable_ref,
+from .core import (BridgeError, GitHub, MAX_FILE, MAX_FILES, MAX_TOTAL, MAX_SNAPSHOT_FILE, immutable_ref,
                    readable, readable_ref, safe_path, under, writable)
 
 MAX_INPUT = 768 * 1024
@@ -108,40 +108,20 @@ class RepositoryService:
         return await github.blob(entry)
 
     async def inventory(self, github, policy, prefix, max_depth, max_entries):
-        if prefix:
-            safe_path(prefix)
-            entry = await github.entry(prefix)
-            if entry is None:
-                raise BridgeError('repository_entry_not_found', 404)
-            if entry.get('type') != 'tree' or entry.get('mode') != '040000':
-                raise BridgeError('directory_required', 422)
-            initial = entry['sha']
-        else:
-            initial = github.root_tree
-        queue, items, complete, visited = [(prefix, initial, 1)], [], True, 0
-        while queue:
-            directory, sha, depth = queue.pop(0)
-            for name, entry in sorted((await github.tree(sha)).items()):
-                path = safe_path(directory + '/' + name if directory else name)
-                visited += 1
-                if visited > MAX_ENTRIES:
-                    return items, False
-                visible = readable(path, policy) or any(p.startswith(path + '/') for p in
-                    policy['program_prefixes'] + policy.get('data_prefixes', []))
-                if not visible:
-                    continue
-                if len(items) >= max_entries:
-                    return items, False
-                kind = ('directory' if entry.get('type') == 'tree' and entry.get('mode') == '040000'
-                        else 'file' if entry.get('type') == 'blob' and entry.get('mode') in ('100644', '100755')
-                        else 'symlink' if entry.get('mode') == '120000' else 'unsupported')
-                items.append({'path': path, 'type': kind, 'size': entry.get('size'), 'git_sha': entry.get('sha')})
-                if kind == 'directory':
-                    if depth < max_depth:
-                        queue.append((path, entry['sha'], depth + 1))
-                    else:
-                        complete = False
-        return items, complete
+        from .repository_query import inventory, visible
+        entries, tree, complete = await inventory(github, policy, prefix)
+        github.directory_trees[prefix] = tree
+        selected = []
+        for item in entries:
+            if not visible(item['path'], policy):
+                continue
+            if item['relative'].count('/') + 1 > max_depth:
+                complete = False
+                continue
+            if len(selected) >= max_entries:
+                return selected, False
+            selected.append(item)
+        return selected, complete
 
     async def query(self, repository, ref, query):
         from .repository_query import query as execute_query
@@ -225,6 +205,11 @@ class RepositoryService:
         return github, policy, base, before, after, summary, fingerprint
 
     async def evaluate(self, repository, ref, candidate, operation, manifest=None, profile=None, max_bytes=65536):
+        from .request_budget import request_budget
+        with request_budget(128):
+            return await self._evaluate(repository, ref, candidate, operation, manifest, profile, max_bytes)
+
+    async def _evaluate(self, repository, ref, candidate, operation, manifest=None, profile=None, max_bytes=65536):
         github, policy, base, before, after, summary, fingerprint = await self.candidate(repository, ref, candidate)
         result = {'repository': repository, 'resolved_commit': base, 'candidate_fingerprint': fingerprint,
                   'operation': operation, 'changed_files': summary}
@@ -247,6 +232,9 @@ class RepositoryService:
             return result
         if operation != 'validate' or self.validator is None:
             raise BridgeError('validation_unavailable', 503)
+        required = policy.get('required_validation')
+        if required and (manifest != required['manifest'] or profile != required['profile']):
+            raise BridgeError('required_validation_mismatch', 403)
         safe_path(manifest)
         raw = after.get(manifest) if manifest in after else await self.content(github, policy, manifest)
         if raw is None:
@@ -268,11 +256,29 @@ class RepositoryService:
                     entries, complete = await self.inventory(github, policy, prefix, 128, MAX_SCAN_FILES)
                 if not complete:
                     raise BridgeError('validation_snapshot_incomplete', 413)
+                wanted = {}
                 for item in entries:
                     if item['type'] not in ('file', 'directory'):
                         raise BridgeError('unsupported_repository_entry', 422)
                     if item['type'] == 'file':
-                        files[item['path']] = await self.content(github, policy, item['path'])
+                        if not readable(item['path'], policy):
+                            raise BridgeError('read_path_not_allowed', 403)
+                        if item['size'] > MAX_SNAPSHOT_FILE:
+                            raise BridgeError('validation_snapshot_limit', 413)
+                        wanted[item['path']] = item['entry']
+                if sum(e['size'] for e in wanted.values()) > MAX_SCAN_BYTES:
+                    raise BridgeError('validation_snapshot_limit', 413)
+                if self.archive and len(wanted) >= 8 and (policy.get('read_all') or prefix and readable(prefix, policy)):
+                    stem = prefix + '/' if prefix else ''
+                    manifest_entries = {p[len(stem):]: e for p, e in wanted.items()}
+                    archived = await self.archive(repository, github.directory_trees[prefix], github.headers, manifest_entries)
+                    if set(archived) != set(manifest_entries):
+                        raise BridgeError('invalid_upstream_response', 502)
+                    for relative, content in archived.items():
+                        files[stem + relative] = github.verify_blob(content, manifest_entries[relative], MAX_SNAPSHOT_FILE)
+                else:
+                    for path, entry in wanted.items():
+                        files[path] = await github.blob(entry, MAX_SNAPSHOT_FILE)
             else:
                 safe_path(selector)
                 if selector in after:
@@ -290,7 +296,7 @@ class RepositoryService:
         if len(files) > MAX_SCAN_FILES or sum(map(len, files.values())) > MAX_SCAN_BYTES:
             raise BridgeError('validation_snapshot_limit', 413)
         for path in files:
-            if path.endswith('.py') and not under(path, policy['program_prefixes']):
+            if path.endswith('.py') and not under(path, policy.get('validation_prefixes', policy['program_prefixes'])):
                 raise BridgeError('validation_code_path_not_allowed', 403)
         validation = await self.validator(files, selected)
         result.update(validation)
@@ -298,7 +304,8 @@ class RepositoryService:
         result['profile'] = profile
         if result.get('passed') is True and self.evidence:
             result['validation_receipt'] = self.evidence.issue('validation', fingerprint,
-                manifest_sha256=digest(raw), profile=profile, passed=True,
+                manifest=manifest, manifest_sha256=digest(raw), profile=profile, passed=True,
+                policy_sha256=digest(encoded(policy)),
                 environment=validation.get('environment', {}),
                 snapshot_sha256=digest(encoded({p: digest(v) for p, v in sorted(files.items())})))
         return result
@@ -313,6 +320,11 @@ class RepositoryService:
         validation = self.evidence.verify(validation_receipt, 'validation', fingerprint)
         if inspection.get('complete') is not True or validation.get('passed') is not True:
             raise BridgeError('candidate_evidence_incomplete', 409)
+        required = policy.get('required_validation')
+        if required and (validation.get('manifest') != required['manifest']
+                or validation.get('profile') != required['profile']
+                or validation.get('policy_sha256') != digest(encoded(policy))):
+            raise BridgeError('required_validation_mismatch', 403)
         if not isinstance(message, str) or not message.strip() or len(message) > 500 or RECEIPT in message:
             raise BridgeError('invalid_commit_message')
         bound_message = message.rstrip() + '\n\n' + RECEIPT + fingerprint

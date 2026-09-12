@@ -1,4 +1,4 @@
-# Repository protocol v1 — Bridge 0.10.1
+# Repository protocol v1 — Bridge 0.11.0
 
 Three orthogonal tools expose repository data and bounded execution. They do not
 classify tasks, choose an executor, interpret application lifecycles, create
@@ -46,6 +46,22 @@ Every response includes `resolved_commit`. Repository paths reject absolute path
 traversal, backslashes, `.git`, control characters and unsafe intermediate entries.
 Tree entries identify symlinks/submodules; explicit reads and validation snapshots
 reject them. Reads never guess a host checkout path.
+
+## Optional host policy
+
+`write_denied_paths` overrides all write grants for listed paths/subtrees.
+`candidate_only` refuses program-produced writes. `required_validation: {manifest,
+profile}` requires that exact repository-owned validation entry and binds passing
+receipts to current host policy; its manifest must be protected. The operator
+also protects the checker/dependencies. `validation_prefixes` grants isolated VM
+code loading without widening trusted `program_prefixes`. Omitted fields preserve
+existing repository behavior. Caller input cannot change these grants.
+
+Validation directories use bounded recursive listings and SHA-verified subtree
+archives. Changed/explicit files retain 512-KiB bounds; unchanged directory files
+may use the existing 4-MiB snapshot bound within the 512-file/16-MiB validation
+total. Inspection/validation has a 128-actual-request budget; exhaustion issues
+no passing receipt.
 
 ## Stateless candidate
 

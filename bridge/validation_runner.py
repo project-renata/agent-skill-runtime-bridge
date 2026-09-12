@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import pkgutil  # Preload runpy's script loader before candidate paths enter sys.path.
 import resource
 import runpy
 import selectors

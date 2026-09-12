@@ -1,0 +1,89 @@
+{
+  "directories": [
+    ".github",
+    "api",
+    "assets",
+    "bridge",
+    "cloudflare",
+    "docs",
+    "examples",
+    "maintenance",
+    "migrations",
+    "scripts",
+    "tests"
+  ],
+  "root_files": [
+    ".gitignore",
+    ".python-version",
+    ".vercelignore",
+    "ARCHITECTURE.md",
+    "LICENSE",
+    "README.md",
+    "REPOSITORY_PROTOCOL.md",
+    "VALIDATION.md",
+    "pylock.toml",
+    "pyproject.toml",
+    "uv.lock",
+    "vercel.json",
+    "worker.py",
+    "wrangler.jsonc"
+  ],
+  "extensions": [
+    ".py",
+    ".md",
+    ".json",
+    ".jsonc",
+    ".toml",
+    ".yml",
+    ".yaml",
+    ".txt",
+    ".png"
+  ],
+  "denied_components": [
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    "generated",
+    "__pycache__",
+    ".nuxt",
+    ".output",
+    "nuxt",
+    "vue"
+  ],
+  "denied_frameworks": [
+    "nuxt",
+    "vue",
+    "react",
+    "next",
+    "svelte",
+    "angular"
+  ],
+  "external_imports": [
+    "cryptography",
+    "fakeredis",
+    "fastmcp",
+    "httpx",
+    "key_value",
+    "pydantic",
+    "pypdf",
+    "redis",
+    "starlette",
+    "vercel",
+    "workers"
+  ],
+  "dependencies": [
+    "fastmcp",
+    "py-key-value-aio",
+    "pypdf",
+    "vercel-sandbox",
+    "fakeredis",
+    "workers-py"
+  ],
+  "max_files": 256,
+  "max_bytes": 8388608,
+  "max_file_bytes": 524288,
+  "known_large_files": {
+    "assets/bridge-icon-master.png": "1bb0a36afcb5bec0cea10c7bda7ec84b557e00e33e383cc54083683411c518b3"
+  }
+}

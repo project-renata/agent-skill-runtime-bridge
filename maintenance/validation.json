@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "profiles": {
+    "maintenance": {
+      "files": [""],
+      "commands": [{"executable": "python", "argv": ["maintenance/check_scope.py"]}],
+      "timeout_seconds": 20,
+      "output_bytes": 16384
+    }
+  }
+}

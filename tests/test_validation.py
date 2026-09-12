@@ -66,12 +66,14 @@ class ValidationAdapterTests(unittest.IsolatedAsyncioTestCase):
 
 @unittest.skipUnless(sys.platform == 'linux' and platform.machine() == 'x86_64', 'Linux supervisor is tested live in the pinned microVM on other hosts')
 class LinuxSupervisorTests(unittest.TestCase):
-    def run_source(self, source, **limits):
+    def run_source(self, source, extra_files=None, **limits):
         runner = Path(__file__).resolve().parents[1] / 'bridge/validation_runner.py'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'repository').mkdir()
             (root / 'repository/test.py').write_text(source)
+            for path, content in (extra_files or {}).items():
+                (root / 'repository' / path).write_text(content)
             (root / 'request.json').write_text(json.dumps(profile(**limits)))
             cmd = [sys.executable, '-I', str(runner), str(root / 'request.json')]
             import os
@@ -113,6 +115,12 @@ print('secure')
         result = self.run_source('print("x" * 1000000)', output_bytes=1024)
         self.assertFalse(result['passed']); self.assertTrue(result['truncated'])
         self.assertLessEqual(len(result['commands'][0]['stdout'].encode()), 1024)
+
+    def test_script_loader_does_not_import_candidate_pkgutil(self):
+        result = self.run_source('print("intended-script-ran")',
+                                 extra_files={'pkgutil.py': 'raise SystemExit(0)\n'})
+        self.assertTrue(result['passed'], result)
+        self.assertIn('intended-script-ran', result['commands'][0]['stdout'])
 
     def test_failure_and_memory_limit(self):
         result = self.run_source('raise AssertionError("expected failure")')

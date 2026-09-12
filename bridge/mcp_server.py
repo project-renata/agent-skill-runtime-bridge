@@ -344,7 +344,7 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': True, 'idempotentHint': False})
     async def run_write_skill(repository: str, ref: str, program: str, files: list[str], input: dict, write: WriteIntent) -> dict:
-        """Execute an authorized batch of repository edits, including deletion. Load every existing target in files and supply the preceding source.commit as write.expected_commit. All accepted changes share one commit. A conflict requires a fresh read and reconciliation."""
+        """Execute an authorized batch of repository edits, including deletion. Load every existing target in files and supply the preceding source.commit as write.expected_commit. All accepted changes share one commit. Protected paths and candidate-only repository policy are enforced. A conflict requires a fresh read and reconciliation."""
         return await run(dict(repository=repository, ref=ref, program=program, files=files, input=input, write=write.model_dump()))
 
     async def repository_call(method, *args):

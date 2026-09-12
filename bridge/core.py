@@ -125,8 +125,8 @@ def readable(path, policy):
 
 
 def writable(path, policy, ref):
-    return ref in policy.get("write_all_refs", []) or under(
-        path, write_prefixes_for(policy, ref))
+    return not under(path, policy.get('write_denied_paths', [])) and (
+        ref in policy.get("write_all_refs", []) or under(path, write_prefixes_for(policy, ref)))
 
 
 class Settings:
@@ -141,11 +141,29 @@ class Settings:
             if not isinstance(policy, dict) or not isinstance(policy.get("ref"), str) or not policy["ref"]:
                 raise BridgeError("server_not_configured", 503)
             allowed = {"ref", "program_prefixes", "data_prefixes", "read_all", "additional_refs",
-                       "write_refs", "write_prefixes", "write_all_refs", "write_prefixes_by_ref"}
+                       "write_refs", "write_prefixes", "write_all_refs", "write_prefixes_by_ref",
+                       "write_denied_paths", "candidate_only", "validation_prefixes", "required_validation"}
             if set(policy) - allowed:
                 raise BridgeError("unknown_repository_policy_field", 503)
             if not isinstance(policy.get("read_all", False), bool):
                 raise BridgeError("server_not_configured", 503)
+            if not isinstance(policy.get('candidate_only', False), bool):
+                raise BridgeError('server_not_configured', 503)
+            for field in ('write_denied_paths', 'validation_prefixes'):
+                if field in policy:
+                    if not isinstance(policy[field], list) or not policy[field]:
+                        raise BridgeError('server_not_configured', 503)
+                    for path in policy[field]:
+                        safe_path(path)
+            if 'required_validation' in policy:
+                required = policy['required_validation']
+                if (not isinstance(required, dict) or set(required) != {'manifest', 'profile'}
+                        or not isinstance(required['profile'], str) or not required['profile']
+                        or not policy.get('candidate_only')):
+                    raise BridgeError('server_not_configured', 503)
+                safe_path(required['manifest'])
+                if not under(required['manifest'], policy.get('write_denied_paths', [])):
+                    raise BridgeError('validation_manifest_must_be_protected', 503)
             for field in ("program_prefixes", "data_prefixes"):
                 prefixes = policy.get(field, [] if field == "data_prefixes" else None)
                 optional = field == "data_prefixes" and policy.get("read_all", False)
@@ -214,6 +232,8 @@ def parse_request(raw, authorization, settings):
         if not readable_ref(request["program_ref"], policy):
             raise BridgeError("ref_not_allowed", 403)
     if "write" in request:
+        if policy.get('candidate_only'):
+            raise BridgeError('candidate_required', 403)
         write = request["write"]
         if (not isinstance(write, dict) or set(write) != {"message", "expected_commit"}
                 or not isinstance(write["message"], str) or not write["message"].strip()

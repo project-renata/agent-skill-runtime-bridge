@@ -4,7 +4,7 @@
 
 Bridge runs operator-trusted canonical Python and provides bounded repository
 transport, host-owned credentials, generic GitHub/Google API primitives, safety
-limits and verifiable receipts. Version **0.10.1** extends the stable
+limits and verifiable receipts. Version **0.11.0** extends the stable
 infrastructure boundary described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Application decisions and workflows live in the caller's canonical repository.
@@ -131,6 +131,9 @@ The repository primitives provide tree/search/read, stateless candidate overlays
 exact diff inspection, isolated validation and persistence through the existing
 atomic Git writer. [REPOSITORY_PROTOCOL.md](REPOSITORY_PROTOCOL.md) contains the
 complete contract, manifest format, safety limits and an executable example.
+Optional host policy protects control paths, requires candidate validation and
+separates sandbox code permissions from trusted-program permissions. See the
+repository-owned [self-maintenance policy](docs/self-maintenance.md).
 There are **25** tools in the fully configured deployment. The original canonical
 Python tools retain their established trusted-code execution contract; candidate
 validation has the stronger, separate isolation boundary described below.

@@ -1,6 +1,6 @@
 [project]
 name = "agent-skill-runtime-bridge"
-version = "0.10.1"
+version = "0.11.0"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=3.4.7,<4",
@@ -25,4 +25,4 @@ packages = ["bridge"]
 [tool.hatch.build.targets.sdist]
 include = ["bridge", "api", "worker.py", "cloudflare", "examples", "scripts", "tests",
            "pyproject.toml", "uv.lock", "pylock.toml", "README.md", "ARCHITECTURE.md", "REPOSITORY_PROTOCOL.md",
-           "LICENSE", "wrangler.jsonc", "vercel.json", "assets/bridge-icon.png"]
+           "maintenance", "docs", "LICENSE", "wrangler.jsonc", "vercel.json", "assets/bridge-icon.png"]

@@ -1,0 +1,61 @@
+{
+  "ref": "main",
+  "read_all": true,
+  "program_prefixes": [
+    "examples"
+  ],
+  "validation_prefixes": [
+    "bridge",
+    "api",
+    "cloudflare",
+    "examples",
+    "maintenance",
+    "migrations",
+    "scripts",
+    "tests",
+    "worker.py"
+  ],
+  "write_refs": [
+    "main"
+  ],
+  "write_all_refs": [
+    "main"
+  ],
+  "candidate_only": true,
+  "required_validation": {
+    "manifest": "maintenance/validation.json",
+    "profile": "maintenance"
+  },
+  "write_denied_paths": [
+    "maintenance",
+    ".github",
+    "api",
+    "examples",
+    ".gitignore",
+    ".vercelignore",
+    ".python-version",
+    "pyproject.toml",
+    "uv.lock",
+    "pylock.toml",
+    "vercel.json",
+    "wrangler.jsonc",
+    "worker.py",
+    "cloudflare/build.py",
+    "bridge/__init__.py",
+    "bridge/core.py",
+    "bridge/execution.py",
+    "bridge/runner.py",
+    "bridge/mcp_server.py",
+    "bridge/repository.py",
+    "bridge/repository_http.py",
+    "bridge/repository_models.py",
+    "bridge/validation.py",
+    "bridge/validation_runner.py",
+    "tests/test_architecture.py",
+    "tests/test_maintenance_policy.py",
+    "tests/test_repository_policy.py",
+    "tests/test_oauth_availability.py",
+    "tests/test_validation.py",
+    "scripts/inspect_surface.py"
+  ]
+}
