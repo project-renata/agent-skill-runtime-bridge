@@ -56,6 +56,15 @@
     "tests/test_repository_policy.py",
     "tests/test_oauth_availability.py",
     "tests/test_validation.py",
-    "scripts/inspect_surface.py"
+    "scripts/inspect_surface.py",
+    "bridge/github_coordination.py",
+    "bridge/github_service.py",
+    "bridge/http.py",
+    "bridge/gmail.py",
+    "bridge/google_journal.py",
+    "bridge/google_services.py",
+    "bridge/google_discovery",
+    "bridge/google_documents.py",
+    "bridge/google_local.py"
   ]
 }

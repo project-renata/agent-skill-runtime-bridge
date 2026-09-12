@@ -137,7 +137,11 @@ class RepositoryScopeTests(unittest.TestCase):
         self.assertEqual(policy['write_all_refs'], ['main'])
         self.assertTrue(policy['candidate_only'])
         self.assertIn('maintenance',policy['write_denied_paths'])
-        self.assertIn('bridge/mcp_server.py',policy['write_denied_paths'])
+        for control in ('bridge/mcp_server.py', 'bridge/github_coordination.py',
+                        'bridge/github_service.py', 'bridge/http.py', 'bridge/gmail.py',
+                        'bridge/google_journal.py', 'bridge/google_services.py',
+                        'bridge/google_discovery', 'bridge/google_documents.py', 'bridge/google_local.py'):
+            self.assertIn(control,policy['write_denied_paths'])
         self.assertIn('bridge',policy['validation_prefixes'])
         self.assertNotIn('bridge',policy['program_prefixes'])
 

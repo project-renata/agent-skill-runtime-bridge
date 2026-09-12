@@ -17,8 +17,9 @@ The generic optional host fields are `write_denied_paths`, `candidate_only`,
 `validation_prefixes`, and `required_validation`. They protect the maintenance
 guard, CI/deployment configuration and entry points, dependencies/lockfiles,
 trusted examples, runtime auth/permission/validation/atomic-write controls, and
-core safety tests. The exact list is in the operator policy. Ordinary source such
-as `bridge/repository_query.py`, transport implementation, other tests and docs
+core safety tests. Credential-bearing GitHub/Google transports, encryption journals,
+provider endpoint schemas and local Keychain adapters are protected too. The exact list is in the operator policy. Ordinary source such
+as `bridge/repository_query.py`, request budgeting/caching, other tests and docs
 remains editable. Protected changes require operator review, not a self-grant.
 
 The atomic writer applies the same path denial. Direct `run_write_skill` and
