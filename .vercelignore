@@ -22,4 +22,5 @@ scripts
 VALIDATION.md
 assets/bridge-icon-master.png
 
-maintenance
+maintenance/*
+!maintenance/check_deployment.py

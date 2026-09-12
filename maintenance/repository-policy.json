@@ -65,6 +65,7 @@
     "bridge/google_services.py",
     "bridge/google_discovery",
     "bridge/google_documents.py",
-    "bridge/google_local.py"
+    "bridge/google_local.py",
+    "tests/test_deployment_policy.py"
   ]
 }

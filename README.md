@@ -4,7 +4,7 @@
 
 Bridge runs operator-trusted canonical Python and provides bounded repository
 transport, host-owned credentials, generic GitHub/Google API primitives, safety
-limits and verifiable receipts. Version **0.11.0** extends the stable
+limits and verifiable receipts. Version **0.11.1** extends the stable
 infrastructure boundary described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Application decisions and workflows live in the caller's canonical repository.
@@ -280,6 +280,23 @@ OAuth registrations, signing/encryption keys and Google credentials stay on the
 host. They must never enter Git, canonical program input or subprocess environment.
 
 ## Build, deployment and verification
+
+Production has no persistent authoring workspace or dedicated authoring/test refs.
+Repository engineering uses query → stateless candidate → inspect/validate in a
+disposable VM → commit. Canonical programs stay under `memory`; main keeps its
+normal engineering access, with an explicit denial for the retired scratch path.
+
+`vercel.json` runs the protected `maintenance/check_deployment.py` before build.
+It rejects restored retired grants or a missing write denial, without logging
+environment values. To upgrade old policy JSON, use
+`python3 maintenance/check_deployment.py --rewrite old-repositories.json --output repositories.json`,
+then install that JSON as `BRIDGE_REPOSITORIES`. The historical 0.9 migration
+applies the same retirement. Do not deploy a copied old environment unchanged.
+
+`scripts/check_repository_live.py` now inspects/validates an overlay of existing
+source and verifies unchanged repository state. It creates no remote helper,
+branch, fixture or substitute workspace. Actual commit tests require an authorized
+source change through the same existing candidate protocol.
 
 ```sh
 uv sync --locked

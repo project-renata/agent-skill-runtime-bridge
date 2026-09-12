@@ -91,7 +91,6 @@ class RepositoryScopeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         names = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')[:-1]
-        names += [str(p.relative_to(ROOT)) for p in (ROOT/'maintenance').rglob('*') if p.is_file()]
         cls.files = {name:(ROOT/name).read_bytes() for name in set(names)}
 
     def validate(self, changes):

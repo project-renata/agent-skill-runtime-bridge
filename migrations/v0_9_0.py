@@ -5,6 +5,7 @@ Run --apply once before promotion and once afterward to catch in-flight claims.
 No Issue bodies or external messages are changed by this migration.
 """
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -25,7 +26,11 @@ def configuration(env):
         if repo == 'project-renata/project-renata':
             # One canonical trust boundary replaces individual capability paths.
             grant['program_prefixes'] = ['memory']
-    updated['BRIDGE_REPOSITORIES'] = json.dumps(repositories)
+    spec = importlib.util.spec_from_file_location('deployment_retirement',
+        Path(__file__).resolve().parents[1] / 'maintenance/check_deployment.py')
+    retirement = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(retirement)
+    updated['BRIDGE_REPOSITORIES'] = json.dumps(retirement.retire(repositories))
     if not updated.get('BRIDGE_GOOGLE_CREDENTIALS') and updated.get('BRIDGE_GMAIL_CREDENTIALS'):
         updated['BRIDGE_GOOGLE_CREDENTIALS'] = updated['BRIDGE_GMAIL_CREDENTIALS']
     updated.pop('BRIDGE_GMAIL_CREDENTIALS', None)

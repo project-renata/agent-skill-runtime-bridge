@@ -126,7 +126,11 @@ a separate discussion at the user’s request. Cloudflare cloud deployment is st
 outstanding.
 
 
-## ChatGPT creates, saves, reads and executes Python, 2026-09-06
+## Historical only — retired Web workspace acceptance, 2026-09-06
+
+This workspace design and its two acceptance refs were retired in 0.11.1.
+These observations are history, not deployment instructions. Current engineering
+uses stateless candidates and disposable validation, with no persistent scratch area.
 
 The user clarified the acceptance criterion: Web must generate its own Python,
 save it through the Bridge, execute it, and modify and rerun it. Executing a

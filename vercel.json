@@ -24,5 +24,6 @@
       "source": "/((?!api/).*)",
       "destination": "/api/mcp"
     }
-  ]
+  ],
+  "buildCommand": "python3 maintenance/check_deployment.py"
 }
