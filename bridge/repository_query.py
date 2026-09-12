@@ -1,3 +1,4 @@
+# Repository search resumes at an immutable commit via signed cursors.
 """Efficient bounded reads with immutable, signed search continuation."""
 import fnmatch
 from bisect import bisect_left
