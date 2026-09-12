@@ -4,7 +4,7 @@
 
 Bridge runs operator-trusted canonical Python and provides bounded repository
 transport, host-owned credentials, generic GitHub/Google API primitives, safety
-limits and verifiable receipts. Version **0.9.0** establishes the stable
+limits and verifiable receipts. Version **0.10.0** extends the stable
 infrastructure boundary described in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Application decisions and workflows live in the caller's canonical repository.
@@ -116,6 +116,7 @@ both optional external services are configured:
 | Group | Tools |
 | --- | --- |
 | Runtime | `list_runtime_targets`, `run_readonly_skill`, `run_write_skill` |
+| Repository | `query_repository`, `evaluate_repository_candidate`, `commit_repository_candidate` |
 | GitHub | `create_github_issue`, `read_github_issue`, `add_github_issue_label`, `add_github_issue_comment`, `read_github_issue_comments`, `read_github_pr`, `read_github_pr_review`, `list_github_issues`, `list_github_prs` |
 | Gmail | `gmail_get_profile`, `gmail_list_labels`, `gmail_search_messages`, `gmail_read_messages` |
 | Google | `google_services_catalog`, `google_services_read`, `google_services_prepare`, `google_services_execute`, `google_mail_compose`, `google_read_document` |
@@ -125,6 +126,14 @@ Unconfigured services contribute no tools. `list_runtime_targets` reports only
 repository/ref/path permissions, snapshot rules and limits, generic service
 availability and transport observations. It does not select an application
 workflow or prescribe lifecycle actions.
+
+The repository primitives provide tree/search/read, stateless candidate overlays,
+exact diff inspection, isolated validation and persistence through the existing
+atomic Git writer. [REPOSITORY_PROTOCOL.md](REPOSITORY_PROTOCOL.md) contains the
+complete contract, manifest format, safety limits and an executable example.
+There are **25** tools in the fully configured deployment. The original canonical
+Python tools retain their established trusted-code execution contract; candidate
+validation has the stronger, separate isolation boundary described below.
 
 ### Generic GitHub transport
 
@@ -226,6 +235,7 @@ from the separately configured host token, not the user's login token.
 | `BRIDGE_GITHUB_API` | Optional generic GitHub permissions, shown below |
 | `BRIDGE_GOOGLE_CREDENTIALS` | Optional account/client_id/client_secret/refresh_token JSON |
 | `BRIDGE_GOOGLE_DOCUMENT_SECRETS` | Optional secret reference -> source SHA256/password |
+| `BRIDGE_SOURCE_COMMIT` | Source commit receipt of this deployment |
 
 ```json
 {
@@ -263,6 +273,13 @@ Deploy to the existing Vercel project with its established CLI/Git procedure:
 OAuth callback as `<origin>/auth/callback`; connect `<origin>/mcp`. Missing OAuth
 configuration returns 503; anonymous MCP execution returns 401. Credentials can
 still expire or be revoked; authentication is not a permanent-login guarantee.
+
+Candidate validation uses the existing Vercel project's OIDC identity to allocate
+one short-lived Sandbox, with a pinned runtime image and outbound network denied.
+No repository credential is sent to that VM. Vercel manages OIDC in production;
+an off-platform validation host needs authorized Vercel Sandbox access. Failure to
+allocate or enforce isolation returns an error, with no local process fallback.
+Each validation incurs bounded provider compute and destroys its VM on exit.
 
 For the 0.9 transition, run the one-time operator migration documented in
 [ARCHITECTURE.md](ARCHITECTURE.md) before switching the production alias. It emits

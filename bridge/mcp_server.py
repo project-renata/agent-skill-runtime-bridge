@@ -31,6 +31,10 @@ from bridge.google_services import GoogleServices
 from bridge.google_journal import RedisGoogleJournal
 from bridge.google_documents import read_document, document_secrets
 from bridge.http import fetch_json, send_json, fetch_archive, transport_status
+from bridge.repository import RepositoryService, Evidence
+from bridge.repository_models import Candidate, Query
+from bridge.validation import execute_validation, IMAGE as VALIDATION_IMAGE
+from bridge.repository_http import service_from_env
 
 
 # Circular RGBA export of assets/bridge-icon-master.png; keep assets/bridge-icon.png identical.
@@ -216,9 +220,11 @@ class OwnerGitHubProvider(GitHubProvider):
             _oauth_upstream_expiry.reset(state)
 
 
-def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None, github=None, gmail=None, google=None, google_secrets=None):
+def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=execute_subprocess, archive=None, github=None, gmail=None, google=None, google_secrets=None, repository_service=None, source_commit=None):
     if auth is None:
         raise ValueError('MCP authentication is required')
+    repositories = repository_service or RepositoryService(settings, fetch=fetch, send=send,
+        evidence=Evidence(settings.key), validator=execute_validation)
     mcp = FastMCP('Agent Skill Runtime Bridge', version=__version__, auth=auth,
         icons=[_SERVER_ICON],
         mask_error_details=True, strict_input_validation=True,
@@ -226,13 +232,25 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
         'Reads return immutable source commits and hashes. Repository writes require the preceding source.commit '
         'and all existing target files in the snapshot; conflicts require fresh source evidence. '
         'External-service primitives use host-owned credentials and return bounded data or mutation receipts. '
-        'Credentials are never tool arguments or canonical program inputs. Execution is not a hostile-code sandbox.')
+        'Credentials are never tool arguments or canonical program inputs. Canonical skill execution requires '
+        'operator-trusted code; candidate validation has a separate bounded isolation contract.')
 
     @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': False})
-    def list_runtime_targets() -> dict:
-        """Return the deployment's allowed repositories, branches, Python program paths and data/write paths."""
+    async def list_runtime_targets() -> dict:
+        """Return repository/ref/path permissions, supported execution limits, source version, service availability and the actual registered public tool names."""
         result = {'runtime_version': __version__, 'repositories': settings.repositories,
                   'github_transport': transport_status(settings.github_token)}
+        result['repository_operations'] = {
+            'tools': ['query_repository', 'evaluate_repository_candidate', 'commit_repository_candidate'],
+            'candidate': 'Stateless base commit plus per-file preconditions and exact changes, bound by SHA256.',
+            'validation': {'runtime': 'Python 3.14.4 standard library; repository-owned Python modules',
+                'manifest_version': 1, 'image': VALIDATION_IMAGE, 'network': 'deny-all',
+                'timeout_seconds': 30, 'output_bytes': 65536, 'commands': 4,
+                'snapshot_files': 512, 'snapshot_bytes': 16777216,
+                'isolation': 'Disposable VM, readonly chroot, unprivileged uid, seccomp, resource limits.'},
+            'persistence': 'Same candidate requires signed complete inspection and passing validation receipts; exact base, durable claim, atomic commit and verified readback.'}
+        result['runtime_source_commit'] = source_commit
+        result['public_tools'] = sorted(tool.name for tool in await mcp.list_tools())
         if gmail:
             result['gmail_transport'] = gmail.discovery()
         if google:
@@ -289,6 +307,31 @@ def create_server(settings, auth, *, fetch=fetch_json, send=send_json, execute=e
     async def run_write_skill(repository: str, ref: str, program: str, files: list[str], input: dict, write: WriteIntent) -> dict:
         """Execute an authorized batch of repository edits, including deletion. Load every existing target in files and supply the preceding source.commit as write.expected_commit. All accepted changes share one commit. A conflict requires a fresh read and reconciliation."""
         return await run(dict(repository=repository, ref=ref, program=program, files=files, input=input, write=write.model_dump()))
+
+    async def repository_call(method, *args):
+        try:
+            return await method(*args)
+        except BridgeError as error:
+            raise ToolError(json.dumps({'code': error.code, **error.details}, separators=(',', ':'))) from None
+
+    @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})
+    async def query_repository(repository: str, ref: str, query: Query) -> dict:
+        """Read a bounded immutable repository tree, literal content search or UTF-8 file/range. Returns resolved commit, completeness and truncation; file reads include whole-file SHA256. Paths are repository-relative and allowlisted. No shell, filesystem path discovery or regex execution."""
+        return await repository_call(repositories.query, repository, ref, query.model_dump(exclude_none=True))
+
+    @mcp.tool(annotations={'readOnlyHint': True, 'destructiveHint': False, 'openWorldHint': True})
+    async def evaluate_repository_candidate(repository: str, ref: str, candidate: Candidate,
+            operation: Annotated[str, Field(pattern='^(inspect|validate)$')], manifest: str | None = None,
+            profile: str | None = None, max_bytes: Annotated[int, Field(ge=1024, le=262144)] = 65536) -> dict:
+        """Inspect exact candidate diff or validate a stateless candidate overlay without repository writes. Binds base commit, per-file SHA/existence and exact changes to one fingerprint. Validation reads a repository-owned JSON manifest/profile, runs bounded Python in a disposable network-denied environment and returns exit status, duration, stdout/stderr and signed evidence. No arbitrary executable, shell, dependency installation or persistent workspace. Incomplete inspection and failed validation produce no commit evidence."""
+        return await repository_call(repositories.evaluate, repository, ref, candidate.request(), operation, manifest, profile, max_bytes)
+
+    @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': True, 'idempotentHint': True})
+    async def commit_repository_candidate(repository: str, ref: str, candidate: Candidate,
+            message: Annotated[str, Field(min_length=1, max_length=500)], inspection_receipt: str,
+            validation_receipt: str) -> dict:
+        """Persist the authorized exact candidate using its fingerprint and signed inspection/validation receipts. Reuses the atomic repository writer; rejects changed base and mismatched evidence. Durable claims prevent duplicate commits, including uncertain retries. Returns actual commit and byte-verified readback. No automatic merge, rebase or conflict resolution."""
+        return await repository_call(repositories.persist, repository, ref, candidate.request(), message, inspection_receipt, validation_receipt)
 
     if gmail:
         async def call_gmail(method, *args):
@@ -479,8 +522,10 @@ def production_app(env=None):
         github = GitHubService(settings, policy, RedisJournal(redis_url), fetch=fetch_json, send=send_json)
     gmail = GmailTransport.from_env(env)
     google = GoogleServices(gmail, RedisGoogleJournal(redis_url, env['BRIDGE_OAUTH_ENCRYPTION_KEY'])) if gmail else None
+    repositories = service_from_env(env)
     server = create_server(settings, auth, archive=fetch_archive, github=github,
-                           gmail=gmail, google=google, google_secrets=document_secrets(env))
+                           gmail=gmail, google=google, google_secrets=document_secrets(env), repository_service=repositories,
+                           source_commit=env.get('BRIDGE_SOURCE_COMMIT'))
     app = server.http_app(path='/mcp', stateless_http=True, json_response=True,
                           host_origin_protection=True, allowed_hosts=[parsed.netloc],
                           allowed_origins=['https://chatgpt.com', base])

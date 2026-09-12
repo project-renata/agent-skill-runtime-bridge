@@ -6,12 +6,19 @@
     },
     "api/mcp.py": {
       "maxDuration": 300
+    },
+    "api/repository.py": {
+      "maxDuration": 300
     }
   },
   "rewrites": [
     {
       "source": "/api/run",
       "destination": "/api/run"
+    },
+    {
+      "source": "/api/repository",
+      "destination": "/api/repository"
     },
     {
       "source": "/((?!api/).*)",

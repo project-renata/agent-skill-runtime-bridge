@@ -48,6 +48,13 @@ credential boundaries independently. Caller-provided state is not authorization.
 
 ## Release rule
 
+Repository protocol v1 adds three operations and two equivalent transports (MCP
+and the existing host API-key trust domain). Queries and candidates are immutable
+data; validation intent is repository-owned. Validation execution is an ephemeral
+isolated infrastructure service, with no persistent workspace or executor policy.
+The original canonical writer remains the only Git write implementation.
+See [REPOSITORY_PROTOCOL.md](REPOSITORY_PROTOCOL.md) for the exact boundary.
+
 A Bridge release is justified by a change to:
 
 - runtime protocol or canonical dependency/snapshot transport;

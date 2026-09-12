@@ -406,3 +406,36 @@ to Bridge. The release's full Bridge suite passes.
 Production promotion and client refresh receipts are recorded by the canonical
 project's release report. The historical observations below describe their dated
 versions; they do not define the current tool surface or ownership.
+# Stateless repository protocol, 0.10.0 (2026-09-12)
+
+The previous decoupling is an independent commit:
+`d8d8e67b3463dca2489e6ad595096596a300f9ab`; its canonical migration is
+`c64f2dbd2933179f0bc75aa1e21b3e00995fd0bf`. Production was still 0.8.1 when
+this second phase began. The new code does not restore any retired workflow tool.
+
+Candidate verification:
+
+- `uv run python -m unittest discover -s tests -q`: 207 tests, zero failures/errors;
+  4 Linux-only supervisor tests skipped on macOS and covered by the actual pinned
+  Linux microVM checks below. CI additionally runs those tests on Linux.
+- The new repository tests exercise both MCP and HTTP transports, real overlay
+  execution against a Git fixture, exact diff/evidence binding, atomic persistence,
+  readback, unknown-effect recovery and no blind replay.
+- `scripts/check_validation_live.py`: 6 actual microVM checks passed: chroot/uid/
+  credential/network/process isolation, CPU timeout, closed-output-pipe timeout,
+  output cap, nonzero check status and memory limit. Every VM was destroyed.
+- The predeployment MCP smoke used the real GitHub integration ref
+  `runtime-bridge/validation-20260905` and real isolated validation. Candidate
+  `fb25eeb6956d0c37fcf3868b7b6bc536e36579b3873f9e6f2c95915c8af7da50`
+  persisted as `a8848bf01f2d9193f0c9eb01869ec57e6efcb635`; repeat returned the same
+  commit. Exact readback passed. Four fixture files were removed and verified in
+  cleanup commit `1c42b46e88bbabc8fd66779385258bbd8c723c61`. No main-branch content
+  was changed by the smoke.
+- Prior migration tests: 5 passed. Canonical Google owner: 8 passed. Canonical
+  dispatch project: 139 tests plus 8 subtests passed; no live dispatch was created.
+- Ruff F/E9, compileall, wheel/sdist build, 25-tool manifest inspection and the
+  existing Cloudflare portable-core staging checks passed.
+
+The runtime is intentionally bounded to the pinned Python environment and
+repository-supplied Python modules. Native toolchains, dynamic dependency installs,
+interactive shells and long-running jobs are outside this protocol.

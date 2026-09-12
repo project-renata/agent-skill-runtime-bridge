@@ -62,9 +62,10 @@ class MCPTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(png).hexdigest(),
                              'a3d104c021b78db2c5c271fcfaf2d10772fc7c1fedc6483d4a55f6f04fed8ac5')
             tools=rpc(client,'tools/list').json()['result']['tools']
-            self.assertEqual(len(tools),3)
+            self.assertEqual(len(tools),6)
             self.assertEqual({t['name']:t['annotations']['readOnlyHint'] for t in tools},
-                {'list_runtime_targets':True,'run_readonly_skill':True,'run_write_skill':False})
+                {'list_runtime_targets':True,'run_readonly_skill':True,'run_write_skill':False,
+                 'query_repository':True,'evaluate_repository_candidate':True,'commit_repository_candidate':False})
             r=rpc(client,'tools/call',{'name':'run_readonly_skill','arguments':json.loads(request())}).json()['result']
             self.assertFalse(r.get('isError'));self.assertEqual(r['structuredContent']['result']['count'],1)
 

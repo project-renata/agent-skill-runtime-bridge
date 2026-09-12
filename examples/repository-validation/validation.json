@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "profiles": {
+    "tests": {
+      "files": ["examples/repository-validation/"],
+      "commands": [
+        {"executable": "python", "argv": ["-m", "unittest", "discover", "-s", "tests"], "cwd": "examples/repository-validation"},
+        {"executable": "python", "argv": ["check_source.py"], "cwd": "examples/repository-validation"}
+      ],
+      "timeout_seconds": 10,
+      "output_bytes": 16384
+    }
+  }
+}

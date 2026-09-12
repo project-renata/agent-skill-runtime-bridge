@@ -25,6 +25,7 @@ TOOLS = {
     'gmail_get_profile', 'gmail_list_labels', 'gmail_search_messages', 'gmail_read_messages',
     'google_services_catalog', 'google_services_read', 'google_services_prepare',
     'google_services_execute', 'google_mail_compose', 'google_read_document',
+    'query_repository', 'evaluate_repository_candidate', 'commit_repository_candidate',
 }
 FORBIDDEN = re.compile(
     r'dispatch_local_agent|accept_local_agent_result|local[ _-](?:runner|codex|coding)|'
@@ -32,7 +33,8 @@ FORBIDDEN = re.compile(
     r'followup_(?:put|close)|registration_(?:track|confirm)|mail_to_calendar|'
     r'\bRenata\b|\bRecall\b|\bRemember\b|\bDream\b|Current[ _]Self|Sync workflow|'
     r'central_repository|trusted_login|required_sources|ControlPlane|BRIDGE_GITHUB_CONTROL|'
-    r'repo_files_usage|authoring_usage', re.I)
+    r'repo_files_usage|authoring_usage|requires_local_agent|should_dispatch|fallback_to_codex|'
+    r'local_escalation|executor_policy|Attention Budget|Story Writer', re.I)
 
 
 class ArchitectureTests(unittest.TestCase):
@@ -55,7 +57,9 @@ class ArchitectureTests(unittest.TestCase):
             metadata = rpc(client, 'tools/call', {'name': 'list_runtime_targets', 'arguments': {}}).json()['result']['structuredContent']
             self.assertIsNone(FORBIDDEN.search(json.dumps(metadata)))
             self.assertEqual(set(metadata), {'runtime_version', 'repositories', 'github_transport',
-                'github_api', 'gmail_transport', 'google_services', 'snapshot_usage'})
+                'github_api', 'gmail_transport', 'google_services', 'snapshot_usage',
+                'repository_operations', 'runtime_source_commit', 'public_tools'})
+            self.assertEqual(set(metadata['public_tools']), TOOLS)
             self.assertEqual(fake.calls, [])
             for name in ('dispatch_local_agent', 'accept_local_agent_result', 'google_workflow_prepare'):
                 result = rpc(client, 'tools/call', {'name': name, 'arguments': {}}).json()
